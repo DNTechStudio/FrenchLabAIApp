@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "I18nEngineContract",
+  "description": "Interface contract for the Internationalization Engine",
+  "type": "object",
+  "properties": {
+    "getLocale": {
+      "type": "string",
+      "description": "Returns current locale code ('fr' | 'en' | 'zh' | 'vi')"
+    },
+    "setLocale": {
+      "type": "string",
+      "description": "Switches active locale, updates localStorage, and notifies listeners"
+    },
+    "t": {
+      "type": "string",
+      "description": "Resolves translation key by dot notation with optional parameter interpolation"
+    }
+  },
+  "required": ["getLocale", "setLocale", "t"]
+}

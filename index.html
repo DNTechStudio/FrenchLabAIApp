@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>French Lab AI • Écosystème Unifié de Maîtrise du Français</title>
+  <meta name="description" content="Super-application d'apprentissage et de préparation aux examens de français DELF-DALF (CECRL A1 à C2). Réunit DELF-DALF Speaking, DELF-DALF Writing, Conversations Quotidiennes et Arène de Débat.">
+
+  <!-- Google Fonts: Inter, Outfit, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="./src/styles/main.css">
+  <link rel="stylesheet" href="./src/styles/sidebar.css">
+  <link rel="stylesheet" href="./src/styles/speaking/variables.css">
+  <link rel="stylesheet" href="./src/styles/speaking/components.css">
+  <link rel="stylesheet" href="./src/styles/speaking/views.css">
+  <link rel="stylesheet" href="./src/styles/speaking/practice.css">
+  <link rel="stylesheet" href="./src/styles/conversation.css">
+  <link rel="stylesheet" href="./src/styles/debate.css">
+  <link rel="stylesheet" href="./src/styles/dictation.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Left Sidebar (Wireframe Navigation) -->
+    <aside id="app-sidebar" aria-label="Menu principal French Lab AI"></aside>
+
+    <!-- Right Dynamic Main Workspace -->
+    <main id="main-workspace" aria-label="Espace de travail principal">
+      <!-- 1. DELF-DALF Speaking Workspace (PRO-06 100% Fidelity) -->
+      <section id="view-speaking" class="workspace-view active" aria-label="Module DELF-DALF Speaking"></section>
+
+      <!-- 2. DELF-DALF Writing Workspace (PRO-05 100% Fidelity) -->
+      <section id="view-writing" class="workspace-view" aria-label="Module DELF-DALF Writing"></section>
+
+      <!-- 3. Dictation Workspace (Standalone Atelier de Dictée) -->
+      <section id="view-dictation" class="workspace-view" aria-label="Module Atelier de Dictée"></section>
+
+      <!-- 4. Daily Conversation Workspace (Pillar III) -->
+      <section id="view-conversation" class="workspace-view" aria-label="Module Conversations Quotidiennes"></section>
+
+      <!-- 5. Debate Arena Workspace (Pillar IV) -->
+      <section id="view-debate" class="workspace-view" aria-label="Module Arène de Débat"></section>
+    </main>
+  </div>
+
+  <!-- Main Application Orchestrator -->
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

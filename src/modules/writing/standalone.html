@@ -1,0 +1,2318 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DELF-DALF Lab Writing — Entraînement Production Écrite & Correction IA</title>
+  <meta name="description" content="Plateforme d'entraînement à la production écrite du DELF-DALF (A1 à C2) avec correction IA, diff visuel et analyse pédagogique." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./index.css" />
+  <!-- React & ReactDOM from CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Lucide Icons standalone -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    /* ==========================================================================
+       1. DOMAIN DATA & LOGIC (French Word Counter, Prompts, Diff Engine)
+       ========================================================================== */
+    const OFFICIAL_DELF_B2_PROMPTS = [
+      {
+        id: 'lettre-maire-espaces-verts',
+        category: 'lettre_formelle',
+        title: 'Lettre au Maire — Préservation du parc municipal',
+        scenario: 'Le conseil municipal de votre ville a décidé de remplacer un parc arboré emblématique du centre-ville par un complexe commercial et un parking souterrain. En tant que représentant(e) d’un collectif de riverains, vous écrivez au maire pour contester ce projet.',
+        instructions: 'Rédigez une lettre formelle argumentée (minimum 250 mots). Vous exposerez les préjudices environnementaux et sociaux de cette décision, mettrez en valeur les bienfaits du parc pour la biodiversité et le bien-être des habitants, et proposerez des solutions alternatives concrètes.',
+        targetWordCount: 250
+      },
+      {
+        id: 'lettre-drh-teletravail',
+        category: 'lettre_formelle',
+        title: 'Lettre à la Direction — Maintien et encadrement du télétravail',
+        scenario: 'La direction de votre entreprise envisage de supprimer totalement le télétravail pour imposer un retour à 100% en présentiel. En qualité de délégué(e) du personnel, vous adressez un courrier formel au Directeur des Ressources Humaines.',
+        instructions: 'Rédigez une lettre formelle et courtoise (minimum 250 mots). Vous défendrez les avantages du travail hybride pour la productivité et l’équilibre vie professionnelle/vie personnelle, tout en soumettant un protocole de suivi pour lever les craintes de la direction.',
+        targetWordCount: 250
+      },
+      {
+        id: 'essai-ia-education',
+        category: 'essai_argumentatif',
+        title: 'Essai — L\'intelligence artificielle dans le milieu éducatif',
+        scenario: 'L’intégration fulgurante des outils d’intelligence artificielle générative dans les écoles et universités suscite de vifs débats entre pédagogues, parents et étudiants.',
+        instructions: 'Dans un essai argumenté et structuré (minimum 250 mots), vous prendrez position sur la question : « L\'intelligence artificielle représente-t-elle une opportunité pédagogique majeure ou un risque d\'appauvrissement intellectuel pour les apprenants ? ». Vous illustrerez votre propos d\'exemples précis.',
+        targetWordCount: 250
+      },
+      {
+        id: 'essai-ecologie-transports',
+        category: 'essai_argumentatif',
+        title: 'Essai — Interdiction des vols intérieurs courts au profit du train',
+        scenario: 'Pour lutter contre le dérèglement climatique, plusieurs gouvernements envisagent d’interdire tous les vols commerciaux lorsqu’une liaison ferroviaire directe de moins de 3 heures existe.',
+        instructions: 'Rédigez un essai argumentatif (minimum 250 mots). Vous présenterez les arguments écologiques, économiques et pratiques entourant cette mesure, avant d’exprimer votre point de vue personnel nuancé et étayé.',
+        targetWordCount: 250
+      },
+      {
+        id: 'article-semaine-4-jours',
+        category: 'article_forum',
+        title: 'Article / Forum — Faut-il généraliser la semaine de 4 jours ?',
+        scenario: 'Un magazine en ligne dédié au monde du travail lance un grand forum participatif : « La semaine de 4 jours payée 35 heures : utopie ou modèle d\'avenir ? »',
+        instructions: 'Rédigez un article d’opinion dynamique pour le forum (minimum 250 mots). Vous capterez l’attention du lectorat, partagerez des arguments percutants sur la santé mentale, la consommation d\'énergie et la compétitivité, et inviterez les lecteurs à réagir.',
+        targetWordCount: 250
+      },
+      {
+        id: 'article-mode-ephemere',
+        category: 'article_forum',
+        title: 'Courrier des lecteurs — L\'impact écologique de la fast-fashion',
+        scenario: 'À la suite d’un reportage télévisé sur la surconsommation textile et ses désastres écologiques dans les pays du Sud, vous décidez de contribuer à la rubrique « Citoyens engagés » d\'un quotidien national.',
+        instructions: 'Rédigez un courrier des lecteurs / article engagé (minimum 250 mots) dénonçant les dérives de la mode éphémère et proposant des modes de consommation alternatifs (seconde main, sobriété, régulation légale).',
+        targetWordCount: 250
+      }
+    ];
+
+    const COMPOUND_EXCEPTIONS = [
+      'rendez-vous', 'au-dessus', 'au-dessous', 'au-delà', 'vis-à-vis', 'arc-en-ciel'
+    ];
+
+    function countFrenchWords(text) {
+      if (!text || !text.trim()) return 0;
+      let normalized = text.replace(/[’‘]/g, "'");
+      COMPOUND_EXCEPTIONS.forEach((c, idx) => {
+        normalized = normalized.replace(new RegExp('\\b' + c + '\\b', 'gi'), `__c_${idx}__`);
+      });
+      normalized = normalized.replace(/[']/g, ' ');
+      normalized = normalized.replace(/-(?:t-)?(je|tu|il|elle|on|nous|vous|ils|elles|ce)\b/gi, ' $1');
+      COMPOUND_EXCEPTIONS.forEach((c, idx) => {
+        normalized = normalized.replace(new RegExp(`__c_${idx}__`, 'g'), c);
+      });
+      const matches = normalized.match(/[a-zA-ZÀ-ÿœŒæÆ]+(?:-[a-zA-ZÀ-ÿœŒæÆ]+)*/g);
+      return matches ? matches.length : 0;
+    }
+
+    function computeWordDiff(originalText, improvedText) {
+      if (!originalText && !improvedText) return [];
+      if (!originalText) return [{ value: improvedText, type: 'added' }];
+      if (!improvedText) return [{ value: originalText, type: 'removed' }];
+
+      const tokenize = (str) => str.match(/\S+|\s+/g) || [];
+      const words1 = tokenize(originalText);
+      const words2 = tokenize(improvedText);
+      const m = words1.length;
+      const n = words2.length;
+
+      const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (words1[i - 1] === words2[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+
+      let i = m, j = n;
+      const rawTokens = [];
+      while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && words1[i - 1] === words2[j - 1]) {
+          rawTokens.push({ value: words1[i - 1], type: 'unchanged' });
+          i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+          rawTokens.push({ value: words2[j - 1], type: 'added' });
+          j--;
+        } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+          rawTokens.push({ value: words1[i - 1], type: 'removed' });
+          i--;
+        }
+      }
+      rawTokens.reverse();
+
+      const merged = [];
+      for (const token of rawTokens) {
+        if (merged.length > 0 && merged[merged.length - 1].type === token.type) {
+          merged[merged.length - 1].value += token.value;
+        } else {
+          merged.push({ ...token });
+        }
+      }
+      return merged;
+    }
+
+    /* ==========================================================================
+       1.6. INTERACTIVE FRENCH DICTATION ENGINE (« La Dictée »)
+       ========================================================================== */
+    const FRENCH_HOMOPHONE_CLUSTERS = [
+      ["c'est", "s'est", 'ces', 'ses', 'sais', 'sait'],
+      ['a', 'à'],
+      ['ou', 'où'],
+      ['on', 'ont'],
+      ['son', 'sont'],
+      ['ce', 'se'],
+      ['leur', 'leurs'],
+      ['tout', 'tous'],
+      ['la', 'là', "l'a", "l'as"],
+      ['peu', 'peut', 'peux'],
+      ['près', 'prêt'],
+      ['mes', 'mais', 'met', 'mets'],
+      ['dans', "d'en", 'dent'],
+      ['sans', "s'en", 'cent', 'sang'],
+    ];
+
+    function stripAccents(str) {
+      return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function cleanWord(str) {
+      return str
+        .replace(/^[\s.,;:!?"'«»()—–-]+|[\s.,;:!?"'«»()—–-]+$/g, '')
+        .trim()
+        .toLowerCase();
+    }
+
+    function splitFrenchSentences(text) {
+      if (!text || !text.trim()) return [];
+      const protectedText = text
+        .replace(/\bM\.\s+/g, 'M_DOT_SPACE_')
+        .replace(/\bMme\.\s+/g, 'MME_DOT_SPACE_')
+        .replace(/\bMlle\.\s+/g, 'MLLE_DOT_SPACE_')
+        .replace(/\betc\.\s*(?=[,a-zà-ÿ])/g, 'ETC_DOT_SPACE_')
+        .replace(/\bDr\.\s+/g, 'DR_DOT_SPACE_')
+        .replace(/\bProf\.\s+/g, 'PROF_DOT_SPACE_')
+        .replace(/\n+/g, ' BREAK_PARAGRAPH_ ');
+
+      const rawSentences = protectedText.split(/(?<=[.!?])\s+(?=[A-ZÀ-Ÿ0-9«"–—]|BREAK_PARAGRAPH_|$)/);
+      const sentences = [];
+
+      rawSentences.forEach((raw) => {
+        const cleaned = raw
+          .replace(/M_DOT_SPACE_/g, 'M. ')
+          .replace(/MME_DOT_SPACE_/g, 'Mme. ')
+          .replace(/MLLE_DOT_SPACE_/g, 'Mlle. ')
+          .replace(/ETC_DOT_SPACE_/g, 'etc. ')
+          .replace(/DR_DOT_SPACE_/g, 'Dr. ')
+          .replace(/PROF_DOT_SPACE_/g, 'Prof. ')
+          .replace(/BREAK_PARAGRAPH_/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (cleaned.length > 0) {
+          sentences.push({
+            index: sentences.length + 1,
+            text: cleaned,
+            wordCount: countFrenchWords(cleaned),
+          });
+        }
+      });
+      return sentences;
+    }
+
+    function classifyDictationMistake(expectedRaw, userRaw) {
+      const expected = cleanWord(expectedRaw);
+      const user = cleanWord(userRaw);
+
+      if (!expected || !user) return 'lexique';
+
+      for (const cluster of FRENCH_HOMOPHONE_CLUSTERS) {
+        if (cluster.includes(expected) && cluster.includes(user)) {
+          return 'homophones';
+        }
+      }
+
+      if (stripAccents(expected) === stripAccents(user) && expected !== user) {
+        return 'accents';
+      }
+
+      const isPluralDiff =
+        expected + 's' === user ||
+        user + 's' === expected ||
+        expected + 'x' === user ||
+        user + 'x' === expected;
+
+      const isFeminineDiff =
+        expected + 'e' === user ||
+        user + 'e' === expected ||
+        expected + 'es' === user ||
+        user + 'es' === expected;
+
+      const isParticipleOrVerbDiff =
+        /^(.*)(er|ez|é|ée|és|ées)$/.test(expected) &&
+        /^(.*)(er|ez|é|ée|és|ées)$/.test(user) &&
+        expected.replace(/(er|ez|é|ée|és|ées)$/, '') === user.replace(/(er|ez|é|ée|és|ées)$/, '');
+
+      const isVerbEndingDiff =
+        /^(.*)(e|ent|ait|aient|ons|ont|ais|ait)$/.test(expected) &&
+        /^(.*)(e|ent|ait|aient|ons|ont|ais|ait)$/.test(user) &&
+        expected.slice(0, 3) === user.slice(0, 3);
+
+      if (isPluralDiff || isFeminineDiff || isParticipleOrVerbDiff || isVerbEndingDiff) {
+        return 'accords';
+      }
+
+      return 'lexique';
+    }
+
+    function getMistakeExplanation(category, expected, user) {
+      switch (category) {
+        case 'accents':
+          return `Attention aux accents : "${user}" au lieu de "${expected}". En français, les accents modifient la prononciation et la nature grammaticale.`;
+        case 'homophones':
+          return `Confusion d'homophones grammaticaux : "${user}" a été écrit à la place de "${expected}". Distinguez la nature grammaticale de ces mots de même sonorité.`;
+        case 'accords':
+          return `Erreur d'accord ou de morphosyntaxe : "${user}" au lieu de "${expected}". Vérifiez les accords en genre/nombre et les terminaisons verbales.`;
+        case 'lexique':
+        default:
+          return `Écart lexical ou orthographique : "${user}" attendu "${expected}".`;
+      }
+    }
+
+    function evaluateDictation(referenceText, userText) {
+      const totalExpectedWords = countFrenchWords(referenceText);
+      if (totalExpectedWords === 0) {
+        return {
+          accuracy: 100,
+          totalExpectedWords: 0,
+          correctWordsCount: 0,
+          mistakesCount: 0,
+          mistakes: [],
+          diffTokens: [],
+          evaluatedAt: Date.now(),
+        };
+      }
+
+      const diffTokens = computeWordDiff(referenceText, userText);
+      const mistakes = [];
+      let correctWordsCount = 0;
+
+      for (let i = 0; i < diffTokens.length; i++) {
+        const token = diffTokens[i];
+        if (token.type === 'unchanged') {
+          correctWordsCount += countFrenchWords(token.value);
+        } else if (token.type === 'removed') {
+          const expectedWords = token.value.trim().split(/\s+/).filter(Boolean);
+          const nextToken = diffTokens[i + 1];
+
+          if (nextToken && nextToken.type === 'added') {
+            const userWords = nextToken.value.trim().split(/\s+/).filter(Boolean);
+            const maxLen = Math.max(expectedWords.length, userWords.length);
+
+            for (let j = 0; j < maxLen; j++) {
+              const exp = expectedWords[j] || '';
+              const usr = userWords[j] || '';
+
+              if (exp && usr) {
+                const cat = classifyDictationMistake(exp, usr);
+                mistakes.push({
+                  id: `mistake-${mistakes.length + 1}`,
+                  category: cat,
+                  expectedWord: exp,
+                  userWord: usr,
+                  explanation: getMistakeExplanation(cat, exp, usr),
+                });
+              } else if (exp) {
+                mistakes.push({
+                  id: `mistake-${mistakes.length + 1}`,
+                  category: 'lexique',
+                  expectedWord: exp,
+                  userWord: '∅ (mot omis)',
+                  explanation: `Le mot "${exp}" a été omis dans votre transcription.`,
+                });
+              }
+            }
+            i++;
+          } else {
+            expectedWords.forEach((exp) => {
+              mistakes.push({
+                id: `mistake-${mistakes.length + 1}`,
+                category: 'lexique',
+                expectedWord: exp,
+                userWord: '∅ (mot omis)',
+                explanation: `Le mot "${exp}" a été omis dans votre transcription.`,
+              });
+            });
+          }
+        }
+      }
+
+      const mistakesCount = mistakes.length;
+      const accuracy = Math.max(0, Math.min(100, Math.round(((totalExpectedWords - mistakesCount) / totalExpectedWords) * 100)));
+
+      return {
+        accuracy,
+        totalExpectedWords,
+        correctWordsCount,
+        mistakesCount,
+        mistakes,
+        diffTokens,
+        evaluatedAt: Date.now(),
+      };
+    }
+
+    const FRENCH_VOICE_CATALOG = [
+      { id: 'webspeech-default', name: 'Navigateur Web Speech', gender: 'female', provider: 'webspeech', styleBadge: 'Gratuit & Hors-ligne', description: 'Voix synthétique intégrée au navigateur (100% hors-ligne)' },
+      { id: 'fr-FR-Neural2-A', name: 'Élise (Neural2-A)', gender: 'female', provider: 'google-cloud', styleBadge: 'Naturel ✨', description: 'Voix féminine fluide, intonation riche et naturelle avec liaisons soignées' },
+      { id: 'fr-FR-Neural2-B', name: 'Julien (Neural2-B)', gender: 'male', provider: 'google-cloud', styleBadge: 'Posé 🎙️', description: 'Voix masculine articulée et posée, idéale pour la dictée analytique' },
+      { id: 'fr-FR-Studio-B', name: 'Claire (Studio-B)', gender: 'female', provider: 'google-cloud', styleBadge: 'Studio 🌟', description: 'Qualité radiodiffusion haute clarté, diction irréprochable et liaisons parfaites' },
+      { id: 'fr-FR-Journey-F', name: 'Antoine (Journey-F)', gender: 'male', provider: 'google-cloud', styleBadge: 'Expressif 🔥', description: 'Prosodie conversationnelle moderne avec modulations de voix réalistes' },
+      { id: 'nova', name: 'Nova (OpenAI)', gender: 'female', provider: 'openai', styleBadge: 'Chaleureux 🎧', description: 'Voix féminine expressive, timbre chaleureux et excellente fluidité' },
+      { id: 'onyx', name: 'Onyx (OpenAI)', gender: 'male', provider: 'openai', styleBadge: 'Profond 🎩', description: 'Voix masculine grave, rythme posé et rassurant' }
+    ];
+
+    const DEFAULT_TTS_CONFIG = {
+      engine: 'webspeech',
+      voiceId: 'webspeech-default'
+    };
+
+    const SpeechService = {
+      isSupported() {
+        return typeof window !== 'undefined' && 'speechSynthesis' in window;
+      },
+      frenchVoice: null,
+      activeAudioElement: null,
+      audioCache: new Map(),
+
+      init() {
+        if (!this.isSupported()) return;
+        const find = () => {
+          const voices = window.speechSynthesis.getVoices();
+          this.frenchVoice =
+            voices.find((v) => v.lang.startsWith('fr') && /natural|neural|online|enhanced/i.test(v.name)) ||
+            voices.find((v) => v.lang === 'fr-FR') ||
+            voices.find((v) => v.lang.startsWith('fr')) ||
+            null;
+        };
+        find();
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+          window.speechSynthesis.onvoiceschanged = find;
+        }
+      },
+
+      async speak(text, rate = 0.85, config, fallbackApiKey) {
+        this.cancel();
+
+        if (!config || config.engine === 'webspeech') {
+          return this.speakWebSpeech(text, rate);
+        }
+
+        if (config.engine === 'google-cloud') {
+          const key = (config.googleApiKey || fallbackApiKey || '').trim();
+          if (!key) {
+            console.warn('Google Cloud TTS selected but no key, using Web Speech.');
+            return this.speakWebSpeech(text, rate);
+          }
+          try {
+            return await this.speakGoogleCloud(text, rate, config.voiceId, key);
+          } catch (e) {
+            console.warn('Google Cloud TTS failed, using Web Speech fallback:', e);
+            return this.speakWebSpeech(text, rate);
+          }
+        }
+
+        if (config.engine === 'openai') {
+          const key = (config.openaiApiKey || fallbackApiKey || '').trim();
+          if (!key) {
+            console.warn('OpenAI TTS selected but no key, using Web Speech.');
+            return this.speakWebSpeech(text, rate);
+          }
+          try {
+            return await this.speakOpenAI(text, rate, config.voiceId, key);
+          } catch (e) {
+            console.warn('OpenAI TTS failed, using Web Speech fallback:', e);
+            return this.speakWebSpeech(text, rate);
+          }
+        }
+
+        return this.speakWebSpeech(text, rate);
+      },
+
+      async speakGoogleCloud(text, rate, voiceId, apiKey) {
+        const cacheKey = `gcloud:${voiceId}:${rate}:${text}`;
+        if (this.audioCache.has(cacheKey)) {
+          return this.playAudioUrl(this.audioCache.get(cacheKey), rate);
+        }
+
+        const url = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`;
+        const payload = {
+          input: { text },
+          voice: {
+            languageCode: 'fr-FR',
+            name: voiceId,
+            ssmlGender: voiceId.includes('B') || voiceId.includes('F') ? 'MALE' : 'FEMALE'
+          },
+          audioConfig: {
+            audioEncoding: 'MP3',
+            speakingRate: rate
+          }
+        };
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Google Cloud TTS API Error (${response.status}): ${errText}`);
+        }
+
+        const data = await response.json();
+        if (!data.audioContent) throw new Error('No audioContent returned');
+
+        const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+        this.audioCache.set(cacheKey, audioUrl);
+        return this.playAudioUrl(audioUrl, rate);
+      },
+
+      async speakOpenAI(text, rate, voiceId, apiKey) {
+        const cacheKey = `openai:${voiceId}:${rate}:${text}`;
+        if (this.audioCache.has(cacheKey)) {
+          return this.playAudioUrl(this.audioCache.get(cacheKey), rate);
+        }
+
+        const url = 'https://api.openai.com/v1/audio/speech';
+        const payload = {
+          model: 'tts-1',
+          input: text,
+          voice: voiceId,
+          speed: rate
+        };
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`OpenAI TTS API Error (${response.status}): ${errText}`);
+        }
+
+        const blob = await response.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        this.audioCache.set(cacheKey, audioUrl);
+        return this.playAudioUrl(audioUrl, rate);
+      },
+
+      playAudioUrl(url, rate) {
+        return new Promise((resolve) => {
+          const audio = new Audio(url);
+          audio.playbackRate = rate;
+          this.activeAudioElement = audio;
+          audio.onended = () => {
+            this.activeAudioElement = null;
+            resolve();
+          };
+          audio.onerror = () => {
+            this.activeAudioElement = null;
+            resolve();
+          };
+          audio.play().catch((err) => {
+            console.warn('Audio play failed:', err);
+            this.activeAudioElement = null;
+            resolve();
+          });
+        });
+      },
+
+      speakWebSpeech(text, rate = 0.85) {
+        return new Promise((resolve) => {
+          if (!this.isSupported()) return resolve();
+          this.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'fr-FR';
+          utterance.rate = rate;
+          if (this.frenchVoice) utterance.voice = this.frenchVoice;
+          utterance.onend = () => resolve();
+          utterance.onerror = () => resolve();
+          window.speechSynthesis.speak(utterance);
+        });
+      },
+
+      async testVoiceSample(config, fallbackApiKey, sampleText = 'Bonjour, voici un aperçu de ma voix pour votre dictée DELF-DALF.') {
+        await this.speak(sampleText, 1.0, config, fallbackApiKey);
+      },
+
+      pause() {
+        if (this.activeAudioElement) this.activeAudioElement.pause();
+        if (this.isSupported() && window.speechSynthesis.speaking) window.speechSynthesis.pause();
+      },
+
+      resume() {
+        if (this.activeAudioElement && this.activeAudioElement.paused) this.activeAudioElement.play().catch(() => {});
+        if (this.isSupported() && window.speechSynthesis.paused) window.speechSynthesis.resume();
+      },
+
+      cancel() {
+        if (this.activeAudioElement) {
+          this.activeAudioElement.pause();
+          this.activeAudioElement.currentTime = 0;
+          this.activeAudioElement = null;
+        }
+        if (this.isSupported()) window.speechSynthesis.cancel();
+      },
+
+      isSpeaking() {
+        return (this.activeAudioElement !== null && !this.activeAudioElement.paused) || (this.isSupported() && window.speechSynthesis.speaking);
+      }
+    };
+    SpeechService.init();
+
+    /* ==========================================================================
+       2. PERSISTENCE (LocalStorage)
+       ========================================================================== */
+    const STORAGE_KEY = 'delf_b2_storage_v1';
+
+    /* ==========================================================================
+       1.5. CEFR LEVEL COMPARISON DEFINITIONS & METADATA (Feature 004)
+       ========================================================================== */
+    const ALL_CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    const DEFAULT_CEFR_LEVELS = ['B2'];
+
+    const CEFR_LEVEL_METADATA = {
+      A1: { code: 'A1', color: '#10b981', badgeBg: 'rgba(16, 185, 129, 0.15)', borderActive: '#059669' },
+      A2: { code: 'A2', color: '#06b6d4', badgeBg: 'rgba(6, 182, 212, 0.15)', borderActive: '#0891b2' },
+      B1: { code: 'B1', color: '#3b82f6', badgeBg: 'rgba(59, 130, 246, 0.15)', borderActive: '#2563eb' },
+      B2: { code: 'B2', color: '#8b5cf6', badgeBg: 'rgba(139, 92, 246, 0.15)', borderActive: '#7c3aed' },
+      C1: { code: 'C1', color: '#ec4899', badgeBg: 'rgba(236, 72, 153, 0.15)', borderActive: '#db2777' },
+      C2: { code: 'C2', color: '#f59e0b', badgeBg: 'rgba(245, 158, 11, 0.15)', borderActive: '#d97706' },
+    };
+
+    function sanitizeSelectedLevels(levels) {
+      if (!Array.isArray(levels) || levels.length === 0) return ['B2'];
+      const valid = levels.filter((l) => ALL_CEFR_LEVELS.includes(l));
+      const deduped = Array.from(new Set(valid));
+      if (deduped.length === 0) return ['B2'];
+      return deduped.slice(0, 2);
+    }
+
+    const StorageService = {
+      load() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return { activePromptId: 'lettre-maire-espaces-verts', drafts: {}, settings: { provider: 'mock', theme: 'dark', language: 'fr', selectedLevels: ['B2'] } };
+          return JSON.parse(raw);
+        } catch {
+          return { activePromptId: 'lettre-maire-espaces-verts', drafts: {}, settings: { provider: 'mock', theme: 'dark', language: 'fr', selectedLevels: ['B2'] } };
+        }
+      },
+      save(data) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+          console.warn('Storage save failed:', e);
+        }
+      }
+    };
+
+        /* ==========================================================================
+       3. MOCK & GEMINI IMPROVEMENT SERVICES (CEFR Multi-Level Capable)
+       ========================================================================== */
+    async function improveEssayMock(promptId, essayContent, targetLevel = 'B2') {
+      await new Promise((r) => setTimeout(r, 380));
+      const original = essayContent.trim();
+      const isLetter = promptId.startsWith('lettre');
+
+      if (targetLevel === 'A1') {
+        const improved = isLetter
+          ? `Bonjour Monsieur,
+
+Je vous écris un message. Dans notre quartier, ce projet n'est pas bon. Beaucoup de personnes aiment les arbres et la nature. Les enfants jouent dans le parc.
+
+S'il vous plaît, pensez aux habitants.
+
+Merci beaucoup.
+Au revoir.`
+          : `Bonjour tout le monde,
+
+Je donne mon avis sur ce sujet. Je pense que ce n'est pas bien pour nous. La nature est très importante pour la santé. Les gens ont besoin de calme.
+
+Merci pour votre lecture.`;
+        const notes = [
+          { id: 'a1-1', criterion: 'grammar', title: "Phrases simples au présent", improvedExcerpt: "Je vous écris un message... Beaucoup de personnes aiment...", explanation: "Au niveau A1, les structures sont élémentaires et emploient le présent de l'indicatif." },
+          { id: 'a1-2', criterion: 'vocabulary', title: "Vocabulaire concret du quotidien", improvedExcerpt: "arbres, nature, enfants, parc, quartier", explanation: "Lexique concret et indispensable de la vie courante." },
+          { id: 'a1-3', criterion: 'sociolinguistic', title: "Formules de civilité élémentaires", improvedExcerpt: "Bonjour Monsieur... S'il vous plaît... Merci beaucoup", explanation: "Utilisation des salutations de base." }
+        ];
+        return {
+          promptId, originalText: original, improvedText: improved,
+          diffTokens: computeWordDiff(original, improved), pedagogicalNotes: notes,
+          overallFeedback: "Version A1 (Découverte) : Phrases courtes et directes, temps présent simple, vocabulaire concret du quotidien.",
+          targetLevel: 'A1',
+          isAutonomous: !original
+        };
+      }
+
+      if (targetLevel === 'A2') {
+        const improved = isLetter
+          ? `Bonjour Monsieur le Maire,
+
+Je vous écris cette lettre parce que j'ai appris le nouveau projet pour notre ville. À mon avis, c'est une mauvaise idée. Dans notre quartier, il y a déjà beaucoup de commerces, mais il n'y a pas assez d'espaces verts.
+
+La semaine dernière, j'ai discuté avec mes voisins et ils sont aussi inquiets pour leurs enfants. C'est pourquoi nous voulons garder les parcs.
+
+Merci pour votre attention.
+Cordialement,
+Un habitant du quartier.`
+          : `Bonjour à tous,
+
+Je veux donner mon opinion sur ce projet. J'ai lu les articles récents et je pense que ce n'est pas une bonne solution. D'abord, cela coûte très cher et ensuite, les habitants préfèrent protéger la nature.
+
+L'année dernière, nous avons déjà vu les conséquences négatives de ces décisions. Il faut donc faire attention.
+
+Bonne journée à tous.`;
+        const notes = [
+          { id: 'a2-1', criterion: 'grammar', title: "Alternance du présent et du passé composé", improvedExcerpt: "j'ai appris le nouveau projet... j'ai discuté avec mes voisins", explanation: "Au niveau A2, le candidat sait relater un événement passé simple en utilisant le passé composé." },
+          { id: 'a2-2', criterion: 'coherence', title: "Connecteurs logiques élémentaires", improvedExcerpt: "parce que, mais, c'est pourquoi, d'abord, ensuite", explanation: "Les phrases sont reliées par des conjonctions de coordination courantes pour exprimer la cause et l'opposition directe." },
+          { id: 'a2-3', criterion: 'sociolinguistic', title: "Registre courant adapté", improvedExcerpt: "Bonjour Monsieur le Maire... Cordialement", explanation: "Formules de politesse standard adaptées à une communication courante." }
+        ];
+        return {
+          promptId, originalText: original, improvedText: improved,
+          diffTokens: computeWordDiff(original, improved), pedagogicalNotes: notes,
+          overallFeedback: "Version A2 (Élémentaire) : Narration au passé composé, connecteurs simples (et, mais, parce que) et expression directe des sentiments.",
+          targetLevel: 'A2',
+          isAutonomous: !original
+        };
+      }
+
+      if (targetLevel === 'B1') {
+        const improved = isLetter
+          ? `Monsieur le Maire,
+
+En tant que résident engagé de notre commune, je me permets de vous écrire afin de vous faire part de mes inquiétudes concernant le projet de réaménagement récemment annoncé.
+
+En premier lieu, je constate que ce chantier va réduire considérablement les zones végétalisées, alors que notre ville souffre déjà de la pollution. De plus, les commerces de proximité risquent de fermer à cause de cette nouvelle concurrence. Bien que je comprenne le besoin de moderniser nos infrastructures, je pense qu'il est indispensable de préserver notre cadre de vie.
+
+C'est pourquoi je vous demande d'organiser une réunion publique pour consulter les riverains.
+
+Dans l'attente de votre réponse, je vous prie d'agréer, Monsieur le Maire, mes salutations respectueuses.
+
+Un représentant des riverains.`
+          : `Chers membres du forum,
+
+Je souhaite réagir à ce débat passionnant qui nous concerne tous directement. À mon sens, il est indéniable que la transition écologique doit rester la priorité absolue de notre génération.
+
+D'un côté, certains privilégient la rentabilité financière immédiate. Mais d'un autre côté, nous constatons chaque jour les conséquences néfastes sur notre santé et notre bien-être. C'est la raison pour laquelle nous devons privilégier des alternatives durables et solidaires.
+
+Et vous, qu'en pensez-vous ? N'hésitez pas à partager vos témoignages.`;
+        const notes = [
+          { id: 'b1-1', criterion: 'coherence', title: "Organisation chronologique et logique", improvedExcerpt: "En premier lieu... De plus... Bien que... C'est pourquoi...", explanation: "Au niveau B1, le candidat sait articuler ses arguments de manière fluide et structurée." },
+          { id: 'b1-2', criterion: 'vocabulary', title: "Nuances d'opinion et lexique thématique", improvedExcerpt: "résident engagé, zones végétalisées, commerces de proximité, cadre de vie", explanation: "Utilisation d'un lexique fonctionnel précis en lien direct avec la thématique citoyenne." },
+          { id: 'b1-3', criterion: 'grammar', title: "Subordonnées circonstancielles et concessions", improvedExcerpt: "Bien que je comprenne... alors que notre ville souffre...", explanation: "Introduction de propositions subordonnées complexes (concession, opposition, cause)." }
+        ];
+        return {
+          promptId, originalText: original, improvedText: improved,
+          diffTokens: computeWordDiff(original, improved), pedagogicalNotes: notes,
+          overallFeedback: "Version B1 (Intermédiaire) : Discours articulé avec connecteurs variés, argumentation cohérente et vocabulaire thématique précis.",
+          targetLevel: 'B1',
+          isAutonomous: !original
+        };
+      }
+
+      if (targetLevel === 'C1') {
+        const improved = isLetter
+          ? `Monsieur le Maire,
+
+Permettez-moi de porter respectueusement à votre haute attention de vives préoccupations citoyennes quant aux incidences urbanistiques et environnementales inhérentes au projet récemment soumis à délibération.
+
+Loin de constituer un catalyseur d'essor économique pérenne, pareille initiative risquerait d'altérer irrémédiablement l'harmonie sociale de notre agglomération. Force est de constater que la densification excessive fragilise nos équilibres écologiques les plus élémentaires. Nul ne saurait occulter l'impérieuse nécessité de préserver nos poumons verts face aux séductions éphémères du mercantilisme.
+
+Dussé-je insister sur la gravité de la situation, il m'apparaît capital qu'une concertation d'envergure soit promptement initiée avec le corps citoyen.
+
+Dans l'attente d'une décision éclairée guidée par l'intérêt général, je vous prie d'agréer, Monsieur le Maire, l'hommage de ma considération la plus distinguée.
+
+Pour le collectif civique des administrés.`
+          : `Chers concitoyens et participants au débat,
+
+Qu'il me soit permis d'apporter un éclairage prospectif sur cette épineuse problématique. Il serait réducteur, voire préjudiciable, d'envisager ce dossier sous le seul prisme des contingences économiques immédiates.
+
+En effet, la soutenabilité environnementale ne saurait être reléguée au rang de variable d'ajustement. Bien que certains arguent de la complexité des mutations sociétales, il incombe aux forces vives de la nation d'impulser une dynamique vertueuse. Dès lors, conjuguer lucidité écologique et prospérité partagée demeure le véritable défi contemporain auquel nous devons collectivement répondre.`;
+        const notes = [
+          { id: 'c1-1', criterion: 'grammar', title: "Syntaxe sophistiquée et subjonctif inversé", improvedExcerpt: "Dussé-je insister... Qu'il me soit permis de... Nul ne saurait occulter...", explanation: "Le niveau C1 se distingue par une maîtrise intuitive de tournures syntaxiques rares (inversion stylistique, conditionnel épistémique)." },
+          { id: 'c1-2', criterion: 'vocabulary', title: "Lexique académique et figures rhétoriques", improvedExcerpt: "catalyseur d'essor, impérieuse nécessité, variable d'ajustement, dynamique vertueuse", explanation: "Emploi de collocations abstraites hautement valorisées dans les écrits académiques et professionnels avancés." },
+          { id: 'c1-3', criterion: 'sociolinguistic', title: "Élégance diplomatique et protocolaire", improvedExcerpt: "porter respectueusement à votre haute attention... l'hommage de ma considération la plus distinguée", explanation: "Nuance et déférence parfaite dans l'interpellation institutionnelle sans emphase superflue." }
+        ];
+        return {
+          promptId, originalText: original, improvedText: improved,
+          diffTokens: computeWordDiff(original, improved), pedagogicalNotes: notes,
+          overallFeedback: "Version C1 (Autonome) : Style raffiné, syntaxe complexe, vocabulaire abstrait de haut vol et finesse argumentative.",
+          targetLevel: 'C1',
+          isAutonomous: !original
+        };
+      }
+
+      if (targetLevel === 'C2') {
+        const improved = isLetter
+          ? `Monsieur le Premier Magistrat,
+
+Qu'il me soit permis de soumettre à votre sagacité quelques réflexions empreintes de gravité touchant au devenir de notre cité et aux arbitrages récents de la municipalité.
+
+L'entreprise envisagée, en ce qu'elle procède d'une vision par trop contingente de l'espace civique, porte en germe une dénaturation profonde de notre patrimoine commun. Il échoit dès lors à la puissance publique de ne point sacrifier à des impératifs mercantiles ce qui constitue le socle immémorial de notre qualité d'être au monde. L'impératif écologique, loin de s'ériger en entrave, s'affirme comme le garant indépassable de toute pérennité.
+
+Pénétré de la conviction que votre magistère saura privilégier la grandeur du bien commun, je vous prie de croire, Monsieur, en l'assurance de ma très haute considération.
+
+Un citoyen au nom de la postérité communale.`
+          : `À l'attention de l'assemblée délibérante,
+
+Aborder pareille controverse exige que l'on se dépouille des sophismes d'usage pour embrasser la complexité intrinsèque du fait contemporain. Sous les oripeaux de la modernité triomphante se dissimule trop souvent une fuite en avant délétère pour nos équilibres anthropologiques et naturels.
+
+C'est pourquoi il importe de réhabiliter une pensée de la mesure, où le progrès technique et économique s'ordonne rigoureusement aux exigences transcendantes de la dignité humaine et de l'intégrité biosphérique.`;
+        const notes = [
+          { id: 'c2-1', criterion: 'vocabulary', title: "Précision littéraire et richesse lexicale native", improvedExcerpt: "sagacité, arbitrages, dénaturation, socle immémorial, oripeaux, transcendantes", explanation: "Au niveau C2, le vocabulaire atteint une précision d'orfèvre, digne des meilleurs écrits littéraires francophones." },
+          { id: 'c2-2', criterion: 'coherence', title: "Rhétorique classique et dialectique magistrale", improvedExcerpt: "en ce qu'elle procède de... Il échoit dès lors à... loin de s'ériger en...", explanation: "Maîtrise absolue du rythme des périodes oratoires et de la progression argumentative." },
+          { id: 'c2-3', criterion: 'grammar', title: "Morphosyntaxe d'exception", improvedExcerpt: "ne point sacrifier... Pénétré de la conviction que votre magistère saura...", explanation: "Maniement sans faille des participes apposés, des négations littéraires et des constructions complexes." }
+        ];
+        return {
+          promptId, originalText: original, improvedText: improved,
+          diffTokens: computeWordDiff(original, improved), pedagogicalNotes: notes,
+          overallFeedback: "Version C2 (Maîtrise) : Éloquence littéraire et académique souveraine, perfection formelle et totale aisance stylistique native.",
+          targetLevel: 'C2',
+          isAutonomous: !original
+        };
+      }
+
+      // Default B2
+      const modelEssay = isLetter
+        ? `Monsieur le Maire,
+
+En tant que représentant dévoué du collectif citoyen des résidents de notre commune, je me permets de porter respectueusement à votre haute attention nos plus vives préoccupations quant au vaste projet d'aménagement urbain récemment rendu public par les services municipaux.
+
+En premier lieu, il me semble indéniable que la réduction drastique des espaces végétalisés portera un préjudice irréversible à la biodiversité locale ainsi qu'au bien-être quotidien de l'ensemble de nos concitoyens. Alors que le dérèglement climatique impose la multiplication urgente d'îlots de fraîcheur au cœur même de nos cités, sacrifier ces zones indispensables de respiration au profit exclusif d'infrastructures commerciales s'avère manifestement contraire à l'intérêt général.
+
+De surcroît, ce projet d'envergure risque d'engendrer une saturation routière permanente particulièrement préjudiciable à la tranquillité des riverains, tout en aggravant notablement la pollution sonore et atmosphérique. Loin de stimuler l'économie de proximité, pareille orientation pourrait au contraire fragiliser le tissu précieux des artisans et des commerces traditionnels de notre centre-ville historique.
+
+Bien que nous comprenions parfaitement les impératifs budgétaires et économiques guidant les arbitrages municipaux, nous estimons impératif qu'une véritable concertation publique transparente soit organisée sans délai. Dès lors, nous vous suggérons avec insistance de privilégier un compromis ambitieux qui concilierait harmonieusement les nécessités légitimes de modernisation urbaine et la préservation stricte de notre patrimoine végétal.
+
+Dans l'attente d'une décision concertée et résolument soucieuse de la qualité de vie durable de vos administrés, je vous prie d'agréer, Monsieur le Maire, l'expression de ma considération la plus distinguée.
+
+Pour le collectif des résidents engagés`
+        : `À l'attention des participants au débat,
+
+Je souhaite apporter aujourd'hui une contribution constructive et approfondie au débat actuel concernant l'avenir de nos modes de travail et les mutations organisationnelles qui transforment notre quotidien professionnel.
+
+D'une part, il me semble indéniable que le développement du télétravail offre des opportunités considérables aux salariés comme aux entreprises contemporaines. Cette flexibilité accrue favorise une conciliation harmonieuse entre vie professionnelle et engagements personnels, tout en allégeant substantiellement les temps de trajet quotidiens et les émissions polluantes associées aux transports individuels. Les gains en autonomie et en efficacité opérationnelle sont d'ailleurs largement corroborés par de multiples observations de terrain.
+
+D'autre part, néanmoins, force est de constater que la généralisation précipitée du travail à distance n'est point dépourvue d'écueils majeurs. L'effacement progressif des frontières temporelles entre travail et sphère privée expose nombre de collaborateurs à des risques réels de surmenage psychologique et d'isolement social. De surcroît, la cohésion d'équipe et la transmission informelle des savoirs se trouvent parfois grandement affaiblies par l'absence d'interactions directes régulières au sein des locaux.
+
+En conclusion, il est impératif que les partenaires sociaux instaurent un cadre réglementaire équilibré combinant souplesse organisationnelle et droit effectif à la déconnexion, afin de garantir un épanouissement professionnel pérenne pour chacun.`;
+
+      const modelNotes = [
+        {
+          id: 'b2-model-1',
+          criterion: 'sociolinguistic',
+          title: isLetter ? "Formule d'appel et protocole épistolaire B2" : "Registre soutenu et prise de position argumentée",
+          improvedExcerpt: isLetter ? "Monsieur le Maire... je vous prie d'agréer..." : "À l'attention des participants... Je souhaite apporter une contribution...",
+          explanation: "Exemple de salutation protocolaire et de clôture formelle requises dans les épreuves officielles DELF B2."
+        },
+        {
+          id: 'b2-model-2',
+          criterion: 'coherence',
+          title: "Connecteurs argumentatifs formels et progression logique",
+          improvedExcerpt: "En premier lieu... De surcroît... Bien que... Dès lors...",
+          explanation: "Structure rigoureusement articulée guidant le lecteur à travers les différents arguments."
+        },
+        {
+          id: 'b2-model-3',
+          criterion: 'grammar',
+          title: "Subordonnées complexes et modes impersonnels",
+          improvedExcerpt: "Alors que le réchauffement impose... il nous semble impératif qu'une concertation soit organisée...",
+          explanation: "Maîtrise des structures syntaxiques complexes (subjonctif après 'impératif que', concessions)."
+        },
+        {
+          id: 'b2-model-4',
+          criterion: 'vocabulary',
+          title: "Lexique abstrait, précis et valorisant",
+          improvedExcerpt: "réduction drastique, préjudice irréversible, îlots de fraîcheur, arbitrages municipaux",
+          explanation: "Utilisation d'un vocabulaire thématique soutenu adapté aux enjeux sociétaux contemporains."
+        }
+      ];
+
+      return {
+        promptId,
+        originalText: essayContent,
+        improvedText: modelEssay,
+        diffTokens: computeWordDiff(essayContent, modelEssay),
+        pedagogicalNotes: modelNotes,
+        overallFeedback: "Production modèle DELF B2 générée avec succès : respect parfait du format épistolaire/argumentatif, registre formel soutenu et argumentation méthodique.",
+        targetLevel: 'B2',
+        isAutonomous: !original
+      };
+    }
+
+    async function improveEssayGemini(prompt, essayContent, apiKey, targetLevel = 'B2') {
+      if (!apiKey) return improveEssayMock(prompt.id, essayContent, targetLevel);
+      const isAutonomous = !essayContent.trim();
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+      const systemPrompt = isAutonomous
+        ? `Tu es un examinateur expert et linguiste spécialiste du Cadre européen commun de référence pour les langues (CECRL). L'apprenant n'a rédigé aucun brouillon. Rédige de manière autonome une production écrite modèle complète répondant au sujet pour le niveau ${targetLevel} (environ 250 mots pour B2). Réponds STRICTEMENT en JSON :
+      {
+        "improvedText": "texte complet modèle",
+        "pedagogicalNotes": [
+          { "id": "1", "criterion": "sociolinguistic"|"coherence"|"grammar"|"vocabulary", "title": "Titre", "originalExcerpt": "extrait", "improvedExcerpt": "extrait modèle", "explanation": "explication claire" }
+        ],
+        "overallFeedback": "commentaire global d'évaluation du modèle pour le niveau ${targetLevel}"
+      }`
+        : `Tu es un examinateur expert du CECRL. Adapte fidèlement le texte du candidat au niveau ${targetLevel} (A1: simple direct; A2: passé composé et connecteurs simples; B1: argumentation articulée; B2: standard DELF B2 formel; C1: syntaxe riche et lexique élevé; C2: éloquence magistrale native). Réponds STRICTEMENT en JSON :
+      {
+        "improvedText": "texte complet amélioré",
+        "pedagogicalNotes": [
+          { "id": "1", "criterion": "sociolinguistic"|"coherence"|"grammar"|"vocabulary", "title": "Titre", "originalExcerpt": "extrait original", "improvedExcerpt": "extrait amélioré", "explanation": "explication claire" }
+        ],
+        "overallFeedback": "commentaire global niveau ${targetLevel}"
+      }`;
+
+      const userText = isAutonomous
+        ? `Sujet : ${prompt.title}\nConsignes : ${prompt.instructions}\n\nRédige une production modèle exemplaire complète pour le niveau ${targetLevel}.`
+        : `Sujet: ${prompt.title}\nConsignes: ${prompt.instructions}\n\nTexte:\n${essayContent}`;
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemPrompt}\n\n${userText}` }] }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.3 }
+          })
+        });
+        const data = await res.json();
+        const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+        const diffTokens = computeWordDiff(essayContent, parsed.improvedText);
+        return {
+          promptId: prompt.id,
+          originalText: essayContent,
+          improvedText: parsed.improvedText,
+          diffTokens,
+          pedagogicalNotes: parsed.pedagogicalNotes || [],
+          overallFeedback: parsed.overallFeedback || `Évaluation personnalisée Gemini (${targetLevel}).`,
+          targetLevel,
+          isAutonomous
+        };
+      } catch (err) {
+        console.warn('Gemini call failed, using mock fallback:', err);
+        const fb = await improveEssayMock(prompt.id, essayContent, targetLevel);
+        fb.overallFeedback += ' (Remarque : Erreur API, correction locale par défaut).';
+        return fb;
+      }
+    }
+/* ==========================================================================
+       3.5. MULTILINGUAL TRANSLATION DICTIONARIES (FR, EN, ZH, VI)
+       ========================================================================== */
+    const TRANSLATIONS = {
+      fr: {
+        brand: { title: 'DELF-DALF Lab Writing', badge: 'Production Écrite A1-C2' },
+        header: {
+          engine: 'Moteur : ', themeLight: 'Activer le thème clair', themeDark: 'Activer le thème sombre',
+          settings: 'Paramètres IA', coffeeLabel: 'Offrez-moi un café',
+          coffeeTitle: 'Offrez-moi un café — Soutenir le projet DELF-DALF Lab Writing', language: 'Langue de l\'interface'
+        },
+        editor: {
+          paneTitle: '📝 Rédaction Thématique DELF B2', clearButton: 'Effacer',
+          clearConfirm: 'Êtes-vous sûr de vouloir effacer votre essai actuel ?',
+          randomTopicButton: 'Sujet aléatoire', selectPromptPrompt: 'Sélectionner un sujet d\'examen...',
+          inputPlaceholder: 'Rédigez votre production écrite ici en français (minimum 250 mots requis pour l\'examen DELF B2)...',
+          targetLabel: 'Objectif :', wordsLabel: 'mots', statusUnder: 'Moins de 250 mots',
+          statusNearing: 'Presque atteint', statusAchieved: 'Objectif atteint !', minWordsTarget: '250 mots min.'
+        },
+        categories: { lettre_formelle: 'Lettre formelle', essai_argumentatif: 'Essai argumentatif', article_forum: 'Article de forum' },
+        comparison: {
+          paneTitle: '✨ Analyse & Diff Visuel', emptyTitle: 'En attente de rédaction',
+          emptySubtitle: 'Rédigez votre production écrite dans le volet de gauche, puis cliquez sur « Améliorer avec l\'IA » pour découvrir une version enrichie de niveau B2 avec analyse pédagogique.',
+          tabUnified: 'Diff visuel', tabOriginal: 'Texte original', tabImproved: 'Version améliorée B2', filterAll: 'Tous les critères',
+          overallFeedbackTitle: 'Appréciation globale du jury DELF', pedagogicalNotesTitle: 'Notes pédagogiques & points d\'amélioration B2',
+          copyButton: 'Copier le texte amélioré', copiedButton: 'Copié !', improveButton: 'Améliorer avec l\'IA', analyzingButton: 'Analyse en cours...'
+        },
+        criteria: {
+          sociolinguistic: 'Sociolinguistique', coherence: 'Cohérence', grammar: 'Morphosyntaxe', vocabulary: 'Vocabulaire'
+        },
+        settings: {
+          title: '⚙️ Paramètres de l\'application', languageLabel: 'Langue de l\'interface :', providerLabel: 'Moteur d\'évaluation :',
+          mockOption: 'Moteur Local Intégré (Hors Ligne & Gratuit)', geminiOption: 'Google Gemini API (Modèle LLM Dynamique)',
+          apiKeyLabel: 'Clé API Gemini :', apiKeyPlaceholder: 'Collez votre clé API Gemini...',
+          apiKeyHelp: 'Votre clé est stockée uniquement en local dans votre navigateur.', saveButton: 'Enregistrer', closeButton: '✕'
+        },
+        cefr: {
+          selectorTitle: 'Niveaux CECRL à comparer :', selectorHint: 'Sélectionnez 1 ou 2 niveaux',
+          maxNotice: 'Maximum 2 niveaux sélectionnés pour la comparaison', minNotice: 'Au moins 1 niveau requis', windowLabel: 'Version',
+          levels: {
+            A1: { name: 'Découverte', desc: 'Phrases simples du quotidien, vocabulaire élémentaire' },
+            A2: { name: 'Élémentaire', desc: 'Situations courantes, passé composé simple' },
+            B1: { name: 'Intermédiaire', desc: 'Discours connecté, opinions et connecteurs courants' },
+            B2: { name: 'Intermédiaire supérieur', desc: 'Arguments structurés, registre soutenu (Cible DELF B2)' },
+            C1: { name: 'Autonome', desc: 'Nuances stylistiques, syntaxe complexe, vocabulaire riche' },
+            C2: { name: 'Maîtrise', desc: 'Éloquence académique, précision littéraire native' }
+          }
+        },
+        dictation: {
+          tabTitle: 'Mode Dictée', listenButton: 'Écouter', pauseButton: 'Pause', replayButton: 'Réécouter',
+          nextSentence: 'Suivant', prevSentence: 'Précédent', sentenceCounter: 'Phrase {current} sur {total}',
+          speedLabel: 'Vitesse :', evaluateButton: 'Corriger ma dictée', accuracyLabel: 'Taux d\'exactitude :',
+          categories: {
+            accords: 'Accords & Grammaire', accents: 'Accents & Diacritiques', homophones: 'Homophones', lexique: 'Lexique & Omissions'
+          },
+          emptyNotice: 'Veuillez saisir votre texte avant de corriger'
+        },
+        tts: {
+          sectionTitle: 'Voix de la Dictée (Synthèse Vocale)',
+          engineLabel: 'Moteur de voix :',
+          voiceLabel: 'Timbre & Modèle de voix :',
+          apiKeyHelp: 'La clé API Gemini peut être réutilisée pour Google Cloud TTS.',
+          testButton: '🔊 Tester la voix',
+          testingLabel: 'Génération audio...',
+          badgeNeural: 'Voix IA',
+          badgeLocal: 'Voix locale',
+          engines: {
+            webspeech: 'Navigateur Web Speech (Gratuit & Hors-ligne)',
+            googleCloud: 'Google Cloud TTS Neural2 / Studio (Haute Fidélité)',
+            openai: 'OpenAI TTS (Voix Expressive)',
+          },
+        },
+      },
+      en: {
+        brand: { title: 'DELF-DALF Lab Writing', badge: 'Writing Practice A1-C2' },
+        header: {
+          engine: 'Engine: ', themeLight: 'Switch to light theme', themeDark: 'Switch to dark theme',
+          settings: 'AI Settings', coffeeLabel: 'Buy me a coffee',
+          coffeeTitle: 'Buy me a coffee — Support the DELF-DALF Lab Writing project', language: 'Interface Language'
+        },
+        editor: {
+          paneTitle: '📝 DELF B2 Essay Composition', clearButton: 'Clear',
+          clearConfirm: 'Are you sure you want to clear your current essay draft?',
+          randomTopicButton: 'Random Topic', selectPromptPrompt: 'Select an exam topic...',
+          inputPlaceholder: 'Compose your French essay here (minimum 250 words required for the DELF B2 exam)...',
+          targetLabel: 'Target:', wordsLabel: 'words', statusUnder: 'Under 250 words',
+          statusNearing: 'Nearing target', statusAchieved: 'Target reached!', minWordsTarget: '250 words min.'
+        },
+        categories: { lettre_formelle: 'Formal letter', essai_argumentatif: 'Argumentative essay', article_forum: 'Forum article' },
+        comparison: {
+          paneTitle: '✨ Analysis & Visual Diff', emptyTitle: 'Awaiting your essay',
+          emptySubtitle: 'Write your draft in the left pane, then click "Improve with AI" to view an enhanced B2-level version with structured pedagogical feedback.',
+          tabUnified: 'Visual Diff', tabOriginal: 'Original Text', tabImproved: 'B2 Enhanced Version', filterAll: 'All criteria',
+          overallFeedbackTitle: 'DELF Examiner\'s Overall Assessment', pedagogicalNotesTitle: 'Pedagogical Notes & B2 Recommendations',
+          copyButton: 'Copy improved text', copiedButton: 'Copied!', improveButton: 'Improve with AI', analyzingButton: 'Analyzing essay...'
+        },
+        criteria: {
+          sociolinguistic: 'Sociolinguistic', coherence: 'Coherence', grammar: 'Grammar', vocabulary: 'Vocabulary'
+        },
+        settings: {
+          title: '⚙️ Application Settings', languageLabel: 'Interface Language:', providerLabel: 'Improvement Engine:',
+          mockOption: 'Built-in Local Engine (Offline & Free)', geminiOption: 'Google Gemini API (Dynamic LLM Model)',
+          apiKeyLabel: 'Gemini API Key:', apiKeyPlaceholder: 'Paste your Gemini API key...',
+          apiKeyHelp: 'Your API key is stored locally in your browser only.', saveButton: 'Save', closeButton: '✕'
+        },
+        cefr: {
+          selectorTitle: 'CEFR Levels to Compare:', selectorHint: 'Select 1 or 2 levels',
+          maxNotice: 'Maximum 2 levels selected for comparison', minNotice: 'At least 1 level required', windowLabel: 'Version',
+          levels: {
+            A1: { name: 'Discovery', desc: 'Simple basic phrases, daily vocabulary' },
+            A2: { name: 'Elementary', desc: 'Everyday situations, simple past tense' },
+            B1: { name: 'Intermediate', desc: 'Connected discourse, standard connectors' },
+            B2: { name: 'Upper Intermediate', desc: 'Structured arguments, formal register (DELF B2 Target)' },
+            C1: { name: 'Advanced', desc: 'Stylistic nuances, complex syntax, rich vocabulary' },
+            C2: { name: 'Mastery', desc: 'Academic eloquence, native literary precision' }
+          }
+        },
+        dictation: {
+          tabTitle: 'Dictation Mode', listenButton: 'Listen', pauseButton: 'Pause', replayButton: 'Replay',
+          nextSentence: 'Next', prevSentence: 'Previous', sentenceCounter: 'Sentence {current} of {total}',
+          speedLabel: 'Speed:', evaluateButton: 'Evaluate Dictation', accuracyLabel: 'Accuracy Rate:',
+          categories: {
+            accords: 'Agreements & Grammar', accents: 'Accents & Diacritics', homophones: 'Homophones', lexique: 'Vocabulary & Omissions'
+          },
+          emptyNotice: 'Please enter your transcription before submitting'
+        },
+        tts: {
+          sectionTitle: 'Dictation Voice (Text-to-Speech)',
+          engineLabel: 'Voice Engine:',
+          voiceLabel: 'Voice Timbre & Model:',
+          apiKeyHelp: 'Gemini API key can be reused for Google Cloud TTS.',
+          testButton: '🔊 Test Voice',
+          testingLabel: 'Synthesizing audio...',
+          badgeNeural: 'AI Voice',
+          badgeLocal: 'Local Voice',
+          engines: {
+            webspeech: 'Browser Web Speech (Free & Offline)',
+            googleCloud: 'Google Cloud TTS Neural2 / Studio (High-Fidelity)',
+            openai: 'OpenAI TTS (Expressive Voice)',
+          },
+        },
+      },
+      zh: {
+        brand: { title: 'DELF-DALF Lab Writing', badge: '法语写作练习 A1-C2' },
+        header: {
+          engine: '引擎：', themeLight: '切换到浅色模式', themeDark: '切换到深色模式',
+          settings: 'AI 设置', coffeeLabel: '请我喝咖啡',
+          coffeeTitle: '请我喝咖啡 — 支持 DELF-DALF Lab Writing 项目', language: '界面语言'
+        },
+        editor: {
+          paneTitle: '📝 DELF B2 主题写作', clearButton: '清空',
+          clearConfirm: '您确定要清空当前的作文草稿吗？',
+          randomTopicButton: '随机题目', selectPromptPrompt: '选择考试题目...',
+          inputPlaceholder: '在此撰写您的法语作文（DELF B2 考试要求至少 250 词）...',
+          targetLabel: '目标：', wordsLabel: '词', statusUnder: '少于 250 词',
+          statusNearing: '接近目标', statusAchieved: '达到目标！', minWordsTarget: '至少 250 词'
+        },
+        categories: { lettre_formelle: '正式信函', essai_argumentatif: '议论文', article_forum: '论坛文章' },
+        comparison: {
+          paneTitle: '✨ 分析与视觉对比', emptyTitle: '等待作文输入',
+          emptySubtitle: '请在左侧撰写您的草稿，然后点击“AI 提升”即可获得润色后的 B2 高分版本及教学分析建议。',
+          tabUnified: '对比视图', tabOriginal: '原始内容', tabImproved: 'B2 润色版', filterAll: '所有标准',
+          overallFeedbackTitle: 'DELF 考官总体评估', pedagogicalNotesTitle: '针对性教学分析与改进建议',
+          copyButton: '复制润色文章', copiedButton: '已复制！', improveButton: 'AI 提升', analyzingButton: '正在分析中...'
+        },
+        criteria: {
+          sociolinguistic: '社会语言能力', coherence: '篇章连贯性', grammar: '词法与句法', vocabulary: '词汇丰富度'
+        },
+        settings: {
+          title: '⚙️ 应用设置', languageLabel: '界面语言：', providerLabel: 'AI 提升引擎：',
+          mockOption: '内置本地引擎（离线、免费）', geminiOption: 'Google Gemini API（动态大模型）',
+          apiKeyLabel: 'Gemini API 密钥：', apiKeyPlaceholder: '粘贴您的 Gemini API 密钥...',
+          apiKeyHelp: '您的 API 密钥仅保存在本地浏览器中。', saveButton: '保存', closeButton: '✕'
+        },
+        cefr: {
+          selectorTitle: '对比的欧标等级：', selectorHint: '请选择 1 或 2 个等级',
+          maxNotice: '最多只能同时选择 2 个等级进行对比', minNotice: '至少需保留 1 个等级', windowLabel: '版本',
+          levels: {
+            A1: { name: '入门级', desc: '日常基础短语，最基本生活词汇' },
+            A2: { name: '初级', desc: '常见日常情景，基础复合过去时' },
+            B1: { name: '中级', desc: '连贯表达，常用观点陈述与逻辑连词' },
+            B2: { name: '中高级', desc: '论据严密，正式书面语体（DELF B2 目标）' },
+            C1: { name: '高级', desc: '细腻语感，复杂句式结构与高阶词汇' },
+            C2: { name: '精通级', desc: '学术级严谨雄辩，母语级文学精准度' }
+          }
+        },
+        dictation: {
+          tabTitle: '听写模式', listenButton: '播放', pauseButton: '暂停', replayButton: '重播',
+          nextSentence: '下一句', prevSentence: '上一句', sentenceCounter: '第 {current} / {total} 句',
+          speedLabel: '语速：', evaluateButton: '批改听写', accuracyLabel: '准确率：',
+          categories: {
+            accords: '配合与语法', accents: '重音与变音符号', homophones: '同音异义词', lexique: '词汇与遗漏'
+          },
+          emptyNotice: '请在提交批改前输入听写文本'
+        },
+        tts: {
+          sectionTitle: '听写朗读语音 (TTS)',
+          engineLabel: '语音引擎：',
+          voiceLabel: '音色与模型：',
+          apiKeyHelp: 'Gemini API 密钥可直接复用于 Google Cloud TTS。',
+          testButton: '🔊 试听语音',
+          testingLabel: '正在生成音频...',
+          badgeNeural: 'AI 神经网络语音',
+          badgeLocal: '本地浏览器语音',
+          engines: {
+            webspeech: '浏览器内置 Web Speech（免费且离线）',
+            googleCloud: 'Google Cloud TTS Neural2 / Studio（高保真原生）',
+            openai: 'OpenAI TTS（自然情感）',
+          },
+        },
+      },
+      vi: {
+        brand: { title: 'DELF-DALF Lab Writing', badge: 'Luyện Viết A1-C2' },
+        header: {
+          engine: 'Động cơ: ', themeLight: 'Chuyển sang giao diện sáng', themeDark: 'Chuyển sang giao diện tối',
+          settings: 'Cài đặt AI', coffeeLabel: 'Mời tôi một ly cà phê',
+          coffeeTitle: 'Mời tôi một ly cà phê — Ủng hộ dự án DELF-DALF Lab Writing', language: 'Ngôn ngữ giao diện'
+        },
+        editor: {
+          paneTitle: '📝 Soạn Thảo Bài Viết DELF B2', clearButton: 'Xóa',
+          clearConfirm: 'Bạn có chắc chắn muốn xóa bản nháp bài viết hiện tại không?',
+          randomTopicButton: 'Chủ đề ngẫu nhiên', selectPromptPrompt: 'Chọn chủ đề thi...',
+          inputPlaceholder: 'Soạn thảo bài viết tiếng Pháp của bạn tại đây (tối thiểu 250 từ cho kỳ thi DELF B2)...',
+          targetLabel: 'Mục tiêu:', wordsLabel: 'từ', statusUnder: 'Dưới 250 từ',
+          statusNearing: 'Gần đạt mục tiêu', statusAchieved: 'Đã đạt mục tiêu!', minWordsTarget: 'Tối thiểu 250 từ'
+        },
+        categories: { lettre_formelle: 'Thư trang trọng', essai_argumentatif: 'Bài luận nghị luận', article_forum: 'Bài viết diễn đàn' },
+        comparison: {
+          paneTitle: '✨ Phân Tích & So Sánh Trực Quan', emptyTitle: 'Đang chờ bài viết',
+          emptySubtitle: 'Hãy viết bản nháp ở khung bên trái, sau đó nhấn « Cải thiện với AI » để nhận phiên bản nâng cấp chuẩn B2 kèm giải thích sư phạm chi tiết.',
+          tabUnified: 'So sánh trực quan', tabOriginal: 'Văn bản gốc', tabImproved: 'Bản nâng cấp B2', filterAll: 'Tất cả tiêu chí',
+          overallFeedbackTitle: 'Nhận xét tổng thể của giám khảo DELF', pedagogicalNotesTitle: 'Ghi chú sư phạm & Điểm cần cải thiện chuẩn B2',
+          copyButton: 'Sao chép bài đã cải thiện', copiedButton: 'Đã sao chép!', improveButton: 'Cải thiện với AI', analyzingButton: 'Đang phân tích...'
+        },
+        criteria: {
+          sociolinguistic: 'Ngôn ngữ xã hội', coherence: 'Tính mạch lạc', grammar: 'Ngữ pháp & Cú pháp', vocabulary: 'Vốn từ vựng'
+        },
+        settings: {
+          title: '⚙️ Cài đặt ứng dụng', languageLabel: 'Ngôn ngữ giao diện:', providerLabel: 'Công cụ cải thiện AI:',
+          mockOption: 'Động cơ Mock tích hợp (Ngoại tuyến & Miễn phí)', geminiOption: 'Google Gemini API (Mô hình LLM Nâng cao)',
+          apiKeyLabel: 'Khóa API Gemini:', apiKeyPlaceholder: 'Dán khóa API Gemini của bạn...',
+          apiKeyHelp: 'Khóa API chỉ được lưu trong trình duyệt của bạn.', saveButton: 'Lưu', closeButton: '✕'
+        },
+        cefr: {
+          selectorTitle: 'Các cấp độ CECRL đối chiếu:', selectorHint: 'Chọn 1 hoặc 2 cấp độ',
+          maxNotice: 'Tối đa chọn 2 cấp độ để so sánh đối chiếu', minNotice: 'Bắt buộc chọn ít nhất 1 cấp độ', windowLabel: 'Phiên bản',
+          levels: {
+            A1: { name: 'Khám phá', desc: 'Câu đơn giản, từ vựng đời sống cơ bản' },
+            A2: { name: 'Sơ cấp', desc: 'Ngữ cảnh quen thuộc, quá khứ đơn giản' },
+            B1: { name: 'Trung cấp', desc: 'Diễn đạt liền mạch, quan điểm và liên từ thông dụng' },
+            B2: { name: 'Trung cấp nâng cao', desc: 'Lập luận chặt chẽ, văn phong trang trọng (Mục tiêu DELF B2)' },
+            C1: { name: 'Cao cấp', desc: 'Sắc thái tinh tế, cú pháp phức tạp, từ vựng phong phú' },
+            C2: { name: 'Thành thạo', desc: 'Phong thái học thuật xuất sắc, chuẩn xác như người bản ngữ' }
+          }
+        },
+        dictation: {
+          tabTitle: 'Chế độ Chính tả', listenButton: 'Nghe câu', pauseButton: 'Tạm dừng', replayButton: 'Nghe lại',
+          nextSentence: 'Câu kế tiếp', prevSentence: 'Câu trước', sentenceCounter: 'Câu {current} trên {total}',
+          speedLabel: 'Tốc độ:', evaluateButton: 'Chấm bài chính tả', accuracyLabel: 'Độ chuẩn xác:',
+          categories: {
+            accords: 'Hòa hợp & Ngữ pháp', accents: 'Dấu câu & Trọng âm', homophones: 'Từ đồng âm', lexique: 'Từ vựng & Bỏ sót'
+          },
+          emptyNotice: 'Vui lòng nhập văn bản trước khi yêu cầu chấm điểm'
+        },
+        tts: {
+          sectionTitle: 'Giọng đọc bài chính tả (TTS)',
+          engineLabel: 'Công nghệ giọng đọc:',
+          voiceLabel: 'Âm sắc & Mô hình giọng:',
+          apiKeyHelp: 'Khóa API Gemini có thể dùng chung cho Google Cloud TTS.',
+          testButton: '🔊 Nghe thử giọng',
+          testingLabel: 'Đang tạo âm thanh...',
+          badgeNeural: 'Giọng AI Chuẩn',
+          badgeLocal: 'Giọng cục bộ',
+          engines: {
+            webspeech: 'Trình duyệt Web Speech (Miễn phí & Ngoại tuyến)',
+            googleCloud: 'Google Cloud TTS Neural2 / Studio (Chuẩn bản xứ)',
+            openai: 'OpenAI TTS (Truyền cảm tự nhiên)',
+          },
+        },
+      }
+    };
+
+    /* ==========================================================================
+       4. REACT APPLICATION UI
+       ========================================================================== */
+    const { useState, useEffect, useMemo, useRef, useCallback, createElement: h } = React;
+
+    function App() {
+      const [data, setData] = useState(() => StorageService.load());
+      const [prompts] = useState(OFFICIAL_DELF_B2_PROMPTS);
+      const [activePromptId, setActivePromptId] = useState(data.activePromptId || 'lettre-maire-espaces-verts');
+
+      const selectedPrompt = useMemo(() => {
+        return prompts.find((p) => p.id === activePromptId) || prompts[0];
+      }, [prompts, activePromptId]);
+
+      const [content, setContent] = useState(() => {
+        return (data.drafts && data.drafts[activePromptId]) ? data.drafts[activePromptId].content : '';
+      });
+
+      const [theme, setTheme] = useState(data.settings?.theme || 'dark');
+      const [currentLanguage, setCurrentLanguage] = useState(data.settings?.language || 'fr');
+      const [settings, setSettings] = useState(() => {
+        const s = data.settings || { provider: 'mock', theme: 'dark', language: 'fr', selectedLevels: ['B2'] };
+        if (!s.ttsConfig) s.ttsConfig = { ...DEFAULT_TTS_CONFIG };
+        return s;
+      });
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [isTestingVoice, setIsTestingVoice] = useState(false);
+
+      // CEFR Levels State
+      const [selectedLevels, setSelectedLevels] = useState(() => sanitizeSelectedLevels(data.settings?.selectedLevels));
+      const [multiLevelResults, setMultiLevelResults] = useState({});
+      const [loadingLevels, setLoadingLevels] = useState({});
+      const [copiedLevels, setCopiedLevels] = useState({});
+      const [levelViewModes, setLevelViewModes] = useState({});
+      const [levelFilterCriteria, setLevelFilterCriteria] = useState({});
+      const [selectorNotice, setSelectorNotice] = useState(null);
+
+      // Dictation Mode State
+      const [activeMode, setActiveMode] = useState('writing'); // 'writing' | 'dictation'
+      const [customDictationLevel, setCustomDictationLevel] = useState(null);
+      const [dictationIndex, setDictationIndex] = useState(0);
+      const [dictationSpeed, setDictationSpeed] = useState(0.85);
+      const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+      const [sentenceInputs, setSentenceInputs] = useState({});
+      const [dictationTab, setDictationTab] = useState('sentence');
+      const [fullDictationInput, setFullDictationInput] = useState('');
+      const [dictationEvaluation, setDictationEvaluation] = useState(null);
+
+      const dictationTargetLevel = customDictationLevel || selectedLevels[0] || 'B2';
+      const handleSwitchToDictation = (lvl) => {
+        if (lvl) setCustomDictationLevel(lvl);
+        SpeechService.cancel();
+        setIsPlayingAudio(false);
+        setDictationEvaluation(null);
+        setDictationIndex(0);
+        setActiveMode('dictation');
+      };
+      const dictationReferenceText = useMemo(() => {
+        if (multiLevelResults[dictationTargetLevel] && multiLevelResults[dictationTargetLevel].improvedText) {
+          return multiLevelResults[dictationTargetLevel].improvedText;
+        }
+        const isLetter = selectedPrompt.id.startsWith('lettre');
+        if (isLetter) {
+          return "Monsieur le Maire,\n\nEn tant que représentant dévoué du collectif citoyen des résidents de notre commune, je me permets de porter respectueusement à votre haute attention nos plus vives préoccupations quant au vaste projet d'aménagement urbain récemment rendu public par les services municipaux.\n\nEn premier lieu, il me semble indéniable que la réduction drastique des espaces végétalisés portera un préjudice irréversible à la biodiversité locale ainsi qu'au bien-être quotidien de l'ensemble de nos concitoyens. Bien que nous comprenions parfaitement les impératifs budgétaires, nous estimons impératif qu'une véritable concertation publique transparente soit organisée sans délai.\n\nJe vous prie d'agréer, Monsieur le Maire, l'expression de ma considération la plus distinguée.";
+        } else {
+          return "À l'attention des participants au débat,\n\nJe souhaite apporter aujourd'hui une contribution constructive et approfondie au débat actuel concernant l'avenir de nos modes de travail et les mutations organisationnelles qui transforment notre quotidien professionnel.\n\nD'une part, il me semble indéniable que le développement du télétravail offre des opportunités considérables aux salariés comme aux entreprises contemporaines. D'autre part, néanmoins, force est de constater que la généralisation précipitée du travail à distance n'est point dépourvue d'écueils majeurs.\n\nEn conclusion, il est impératif que les partenaires sociaux instaurent un cadre réglementaire équilibré combinant souplesse organisationnelle et droit effectif à la déconnexion.";
+        }
+      }, [multiLevelResults, dictationTargetLevel, selectedPrompt.id]);
+
+      const dictationSentences = useMemo(() => {
+        return splitFrenchSentences(dictationReferenceText);
+      }, [dictationReferenceText]);
+
+      const currentDictSentence = dictationSentences[dictationIndex] || { index: 1, text: '', wordCount: 0 };
+      const currentSentenceInput = sentenceInputs[dictationIndex] || '';
+
+      const handlePlayDictation = useCallback(async (idx) => {
+        const i = idx !== undefined ? idx : dictationIndex;
+        const target = dictationSentences[i];
+        if (!target || !target.text) return;
+        try {
+          setIsPlayingAudio(true);
+          await SpeechService.speak(target.text, dictationSpeed, settings.ttsConfig, settings.apiKey);
+        } catch (e) {
+          console.warn('Speech playback failed', e);
+        } finally {
+          setIsPlayingAudio(false);
+        }
+      }, [dictationIndex, dictationSentences, dictationSpeed, settings.ttsConfig, settings.apiKey]);
+
+      const handlePauseDictation = useCallback(() => {
+        SpeechService.pause();
+        setIsPlayingAudio(false);
+      }, []);
+
+      const handlePrevDictation = useCallback(() => {
+        SpeechService.cancel();
+        setIsPlayingAudio(false);
+        setDictationIndex((prev) => Math.max(0, prev - 1));
+        setDictationEvaluation(null);
+      }, []);
+
+      const handleNextDictation = useCallback(() => {
+        SpeechService.cancel();
+        setIsPlayingAudio(false);
+        setDictationIndex((prev) => Math.min(dictationSentences.length - 1, prev + 1));
+        setDictationEvaluation(null);
+      }, [dictationSentences.length]);
+
+      // Global keyboard shortcut listener (Ctrl + R: replay, Ctrl + Left: prev, Ctrl + Right: next)
+      useEffect(() => {
+        const onKey = (e) => {
+          if (activeMode !== 'dictation') return;
+          if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR')) {
+            e.preventDefault();
+            handlePlayDictation();
+          } else if (e.ctrlKey && (e.key === 'ArrowLeft' || e.code === 'ArrowLeft')) {
+            e.preventDefault();
+            handlePrevDictation();
+          } else if (e.ctrlKey && (e.key === 'ArrowRight' || e.code === 'ArrowRight')) {
+            e.preventDefault();
+            handleNextDictation();
+          }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [activeMode, handlePlayDictation, handlePrevDictation, handleNextDictation]);
+
+      const handleEvaluateDictation = () => {
+        const userText = dictationTab === 'sentence' ? currentSentenceInput : fullDictationInput;
+        const expected = dictationTab === 'sentence' ? currentDictSentence.text : dictationReferenceText;
+        const result = evaluateDictation(expected, userText);
+        setDictationEvaluation(result);
+      };
+
+      const handleResetDictationCurrent = () => {
+        if (dictationTab === 'sentence') {
+          setSentenceInputs((prev) => ({ ...prev, [dictationIndex]: '' }));
+        } else {
+          setFullDictationInput('');
+          setSentenceInputs({});
+        }
+        setDictationEvaluation(null);
+      };
+
+      const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS.fr;
+
+      const showNotice = (msg) => {
+        setSelectorNotice(msg);
+        setTimeout(() => setSelectorNotice((curr) => (curr === msg ? null : curr)), 2800);
+      };
+
+      const handleLanguageChange = (newLang) => {
+        setCurrentLanguage(newLang);
+        const updatedSettings = { ...settings, language: newLang };
+        setSettings(updatedSettings);
+        const updated = { ...data, settings: updatedSettings };
+        setData(updated);
+        StorageService.save(updated);
+      };
+
+      const handleToggleLevel = (lvl) => {
+        const isSelected = selectedLevels.includes(lvl);
+        if (isSelected) {
+          if (selectedLevels.length <= 1) {
+            showNotice(t.cefr?.minNotice || 'Au moins 1 niveau requis');
+            return;
+          }
+          const updated = selectedLevels.filter((l) => l !== lvl);
+          setSelectedLevels(updated);
+          const updatedSettings = { ...settings, selectedLevels: updated };
+          setSettings(updatedSettings);
+          StorageService.save({ ...data, settings: updatedSettings });
+        } else {
+          if (selectedLevels.length >= 2) {
+            showNotice(t.cefr?.maxNotice || 'Maximum 2 niveaux sélectionnés pour la comparaison');
+            return;
+          }
+          const updated = ALL_CEFR_LEVELS.filter((l) => l === lvl || selectedLevels.includes(l));
+          setSelectedLevels(updated);
+          const updatedSettings = { ...settings, selectedLevels: updated };
+          setSettings(updatedSettings);
+          StorageService.save({ ...data, settings: updatedSettings });
+        }
+      };
+
+      const wordCount = useMemo(() => countFrenchWords(content), [content]);
+
+      // Apply theme
+      useEffect(() => {
+        document.documentElement.setAttribute('data-theme', theme);
+        const updated = { ...data, settings: { ...settings, theme } };
+        setData(updated);
+        StorageService.save(updated);
+      }, [theme]);
+
+      // Debounced Autosave
+      const saveTimer = useRef(null);
+      useEffect(() => {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => {
+          const updated = {
+            ...data,
+            activePromptId: selectedPrompt.id,
+            drafts: {
+              ...data.drafts,
+              [selectedPrompt.id]: { promptId: selectedPrompt.id, content, wordCount, lastSavedAt: Date.now() }
+            }
+          };
+          setData(updated);
+          StorageService.save(updated);
+        }, 300);
+        return () => clearTimeout(saveTimer.current);
+      }, [content, wordCount, selectedPrompt.id]);
+
+      const handleSelectPrompt = (prompt) => {
+        setActivePromptId(prompt.id);
+        const draft = data.drafts && data.drafts[prompt.id];
+        setContent(draft ? draft.content : '');
+        setMultiLevelResults({});
+      };
+
+      const handleRandomPrompt = () => {
+        const remaining = prompts.filter((p) => p.id !== selectedPrompt.id);
+        const random = remaining[Math.floor(Math.random() * remaining.length)];
+        handleSelectPrompt(random);
+      };
+
+      const handleReset = () => {
+        if (window.confirm('Voulez-vous réinitialiser votre brouillon pour ce sujet ?')) {
+          setContent('');
+          setMultiLevelResults({});
+          const drafts = { ...data.drafts };
+          delete drafts[selectedPrompt.id];
+          const updated = { ...data, drafts };
+          setData(updated);
+          StorageService.save(updated);
+        }
+      };
+
+      const isAnyLoading = useMemo(() => Object.values(loadingLevels).some(Boolean), [loadingLevels]);
+
+      const handleImprove = async () => {
+        if (isAnyLoading) return;
+
+        const initLoading = {};
+        selectedLevels.forEach((lvl) => { initLoading[lvl] = true; });
+        setLoadingLevels(initLoading);
+
+        try {
+          await Promise.all(
+            selectedLevels.map(async (lvl) => {
+              try {
+                let res;
+                if (settings.provider === 'gemini' && settings.apiKey) {
+                  res = await improveEssayGemini(selectedPrompt, content, settings.apiKey, lvl);
+                } else {
+                  res = await improveEssayMock(selectedPrompt.id, content, lvl);
+                }
+                setMultiLevelResults((prev) => ({ ...prev, [lvl]: res }));
+              } catch (err) {
+                console.error('Improvement error for ' + lvl, err);
+              } finally {
+                setLoadingLevels((prev) => ({ ...prev, [lvl]: false }));
+              }
+            })
+          );
+        } finally {
+          setLoadingLevels({});
+        }
+      };
+
+      const handleCopyLevel = async (lvl) => {
+        const res = multiLevelResults[lvl];
+        if (!res) return;
+        await navigator.clipboard.writeText(res.improvedText);
+        setCopiedLevels((prev) => ({ ...prev, [lvl]: true }));
+        setTimeout(() => setCopiedLevels((prev) => ({ ...prev, [lvl]: false })), 2000);
+      };
+
+      const isTargetAchieved = wordCount >= 250;
+      const progressPercent = Math.min(100, Math.round((wordCount / 250) * 100));
+
+      // Render individual comparison window
+      const renderComparisonWindow = (lvl) => {
+        const meta = CEFR_LEVEL_METADATA[lvl];
+        const levelTrans = t.cefr?.levels?.[lvl];
+        const result = multiLevelResults[lvl];
+        const isLvlLoading = !!loadingLevels[lvl];
+        const hasCopied = !!copiedLevels[lvl];
+        const viewMode = levelViewModes[lvl] || ((result && (result.isAutonomous || !result.originalText || !result.originalText.trim())) ? 'clean' : 'diff');
+        const selectedCriterion = levelFilterCriteria[lvl] || 'all';
+
+        const lvlWordCount = result ? countFrenchWords(result.improvedText) : 0;
+        const filteredNotes = result ? (
+          selectedCriterion === 'all'
+            ? result.pedagogicalNotes
+            : result.pedagogicalNotes.filter((n) => n.criterion === selectedCriterion)
+        ) : [];
+
+        return h('div', {
+          key: lvl,
+          className: 'comparison-window-card',
+          style: { borderTop: `3px solid ${meta.color}` }
+        },
+          // Window Header
+          h('div', { className: 'comparison-window-header' },
+            h('div', { className: 'comparison-window-meta' },
+              h('span', {
+                className: 'cefr-level-badge',
+                style: { backgroundColor: meta.badgeBg, color: meta.color, border: `1px solid ${meta.borderActive}` }
+              }, `✨ ${lvl} — ${levelTrans?.name || lvl}`),
+              result && h('span', { className: 'comparison-window-wordcount' }, `${lvlWordCount} ${t.editor.wordsLabel}`)
+            ),
+            result && h('button', {
+              className: 'btn-secondary',
+              style: { padding: '0.25rem 0.6rem', fontSize: '0.75rem' },
+              onClick: () => handleCopyLevel(lvl)
+            }, hasCopied ? `✓ ${t.comparison.copiedButton}` : `📋 ${t.comparison.copyButton}`)
+          ),
+
+          // Window Body
+          h('div', { className: 'comparison-window-body' },
+            isLvlLoading ? h('div', { style: { textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' } },
+              h('div', { style: { fontSize: '2rem', marginBottom: '0.75rem' } }, '⏳'),
+              h('p', { style: { fontWeight: 600, fontSize: '0.9rem' } }, `Génération de la version ${lvl}...`)
+            ) : !result ? h('div', { style: { textAlign: 'center', padding: '2.5rem 1.5rem', color: 'var(--text-muted)' } },
+              h('div', {
+                style: {
+                  width: '46px', height: '46px', borderRadius: 'var(--radius-lg)', background: meta.badgeBg,
+                  border: `1px solid ${meta.borderActive}`, margin: '0 auto 0.75rem auto',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem'
+                }
+              }, '📖'),
+              h('h4', { style: { fontFamily: 'var(--font-display)', color: 'var(--text-primary)', marginBottom: '0.35rem' } },
+                `${lvl} (${levelTrans?.name || lvl})`
+              ),
+              h('p', { style: { fontSize: '0.8rem', maxWidth: '320px', margin: '0 auto', lineHeight: 1.5 } },
+                levelTrans?.desc || t.comparison.emptySubtitle
+              ),
+              h('button', {
+                className: 'btn-secondary',
+                style: {
+                  marginTop: '0.75rem',
+                  padding: '0.35rem 0.75rem',
+                  fontSize: '0.8rem',
+                  color: 'var(--accent-secondary)',
+                  borderColor: 'rgba(6, 182, 212, 0.35)'
+                },
+                onClick: () => handleSwitchToDictation(lvl),
+                title: t.dictation?.tabTitle || 'Mode Dictée'
+              }, `🎧 ${t.dictation?.tabTitle || 'Mode Dictée'}`)
+            ) : h('div', null,
+              // View mode controls
+              h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' } },
+                h('span', { style: { fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' } },
+                  t.comparison.tabUnified
+                ),
+                h('div', { style: { display: 'flex', gap: '0.35rem' } },
+                  h('button', {
+                    className: 'btn-secondary',
+                    style: {
+                      padding: '0.25rem 0.55rem', fontSize: '0.72rem',
+                      borderColor: viewMode === 'diff' ? meta.color : 'var(--border-subtle)',
+                      background: viewMode === 'diff' ? meta.badgeBg : 'var(--bg-surface)'
+                    },
+                    onClick: () => setLevelViewModes((prev) => ({ ...prev, [lvl]: 'diff' }))
+                  }, `📊 ${t.comparison.tabUnified}`),
+                  h('button', {
+                    className: 'btn-secondary',
+                    style: {
+                      padding: '0.25rem 0.55rem', fontSize: '0.72rem',
+                      borderColor: viewMode === 'clean' ? meta.color : 'var(--border-subtle)',
+                      background: viewMode === 'clean' ? meta.badgeBg : 'var(--bg-surface)'
+                    },
+                    onClick: () => setLevelViewModes((prev) => ({ ...prev, [lvl]: 'clean' }))
+                  }, `👁️ ${(t.comparison.tabImproved || '').replace(/B2/g, lvl)}`),
+                  h('button', {
+                    className: 'btn-secondary',
+                    style: {
+                      padding: '0.25rem 0.55rem', fontSize: '0.72rem',
+                      color: 'var(--accent-secondary)',
+                      borderColor: 'rgba(6, 182, 212, 0.35)',
+                      background: 'var(--bg-surface)'
+                    },
+                    onClick: () => handleSwitchToDictation(lvl),
+                    title: t.dictation?.tabTitle || 'Mode Dictée'
+                  }, `🎧 ${t.dictation?.tabTitle || 'Mode Dictée'}`)
+                )
+              ),
+
+              // Diff or Clean text
+              h('div', { className: 'diff-container' },
+                viewMode === 'clean'
+                  ? result.improvedText
+                  : result.diffTokens.map((tTok, idx) => {
+                      if (tTok.type === 'removed') {
+                        return h('del', { key: idx, className: 'diff-token diff-removed', title: t.comparison.diffLegendRemoved || 'Supprimé' }, tTok.value);
+                      }
+                      if (tTok.type === 'added') {
+                        return h('ins', { key: idx, className: 'diff-token diff-added', title: t.comparison.diffLegendAdded || lvl }, tTok.value);
+                      }
+                      return h('span', { key: idx }, tTok.value);
+                    })
+              ),
+
+              // Notes section
+              h('div', { className: 'notes-section', style: { marginTop: '1rem' } },
+                h('div', { className: 'notes-header', style: { fontSize: '0.85rem' } }, `🎓 ${(t.comparison.pedagogicalNotesTitle || '').replace(/B2/g, lvl)}`),
+                h('div', {
+                  style: {
+                    background: meta.badgeBg, border: `1px solid ${meta.borderActive}`, borderRadius: 'var(--radius-md)',
+                    padding: '0.75rem 0.9rem', fontSize: '0.825rem', color: 'var(--text-primary)', marginBottom: '0.75rem'
+                  }
+                }, h('strong', null, `${t.comparison.overallFeedbackTitle} : `), result.overallFeedback),
+
+                // Filters
+                h('div', { style: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.65rem' } },
+                  h('button', {
+                    className: 'btn-secondary',
+                    style: { padding: '0.2rem 0.5rem', fontSize: '0.7rem', borderColor: selectedCriterion === 'all' ? meta.color : 'var(--border-subtle)' },
+                    onClick: () => setLevelFilterCriteria((prev) => ({ ...prev, [lvl]: 'all' }))
+                  }, `${t.comparison.filterAll} (${result.pedagogicalNotes.length})`),
+                  ['sociolinguistic', 'coherence', 'grammar', 'vocabulary'].map((crit) => {
+                    const count = result.pedagogicalNotes.filter((n) => n.criterion === crit).length;
+                    if (count === 0) return null;
+                    return h('button', {
+                      key: crit,
+                      className: 'btn-secondary',
+                      style: { padding: '0.2rem 0.5rem', fontSize: '0.7rem', borderColor: selectedCriterion === crit ? meta.color : 'var(--border-subtle)' },
+                      onClick: () => setLevelFilterCriteria((prev) => ({ ...prev, [lvl]: crit }))
+                    }, `${t.criteria[crit] || crit} (${count})`);
+                  })
+                ),
+
+                // Note Cards
+                h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.65rem' } },
+                  filteredNotes.map((note) => h('div', { key: note.id, className: 'note-card' },
+                    h('span', { className: `note-badge ${note.criterion}` }, t.criteria[note.criterion] || note.criterion.toUpperCase()),
+                    h('div', { className: 'note-title', style: { fontSize: '0.85rem' } }, note.title),
+                    note.originalExcerpt && h('div', { style: { fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.25rem' } },
+                      h('span', { style: { textDecoration: 'line-through', color: 'var(--diff-removed-text)' } }, note.originalExcerpt),
+                      h('span', { style: { margin: '0 0.35rem' } }, '➔'),
+                      h('span', { style: { color: 'var(--diff-added-text)', fontWeight: 500 } }, note.improvedExcerpt)
+                    ),
+                    h('p', { className: 'note-explanation', style: { fontSize: '0.8rem' } }, note.explanation)
+                  ))
+                )
+              )
+            )
+          )
+        );
+      };
+
+      const renderDictationPane = () => {
+        const dt = t.dictation || TRANSLATIONS.fr.dictation;
+        const activeText = dictationTab === 'sentence' ? currentSentenceInput : fullDictationInput;
+        const activeWords = countFrenchWords(activeText);
+
+        const mistakesBreakdown = dictationEvaluation ? dictationEvaluation.mistakes.reduce((acc, m) => {
+          acc[m.category] = (acc[m.category] || 0) + 1;
+          return acc;
+        }, { accords: 0, accents: 0, homophones: 0, lexique: 0 }) : { accords: 0, accents: 0, homophones: 0, lexique: 0 };
+
+        return h('section', { className: 'pane dictation-pane' },
+          // Header
+          h('div', { className: 'pane-header dictation-header' },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: '0.65rem' } },
+              h('button', {
+                className: 'btn-secondary',
+                onClick: () => {
+                  SpeechService.cancel();
+                  setIsPlayingAudio(false);
+                  setCustomDictationLevel(null);
+                  setActiveMode('writing');
+                },
+                style: { padding: '0.35rem 0.65rem', fontSize: '0.8rem' }
+              }, '← ' + (t.editor.paneTitle ? 'Rédaction' : 'Retour')),
+              h('div', { className: 'pane-title' }, `🎧 ${dt.tabTitle}`),
+              h('span', {
+                className: 'cefr-level-badge',
+                style: { background: 'rgba(99, 102, 241, 0.15)', color: 'var(--accent-primary)', border: '1px solid var(--border-glow)' }
+              }, dictationTargetLevel)
+            ),
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
+              h('button', {
+                type: 'button',
+                className: 'btn-secondary',
+                onClick: () => setIsSettingsOpen(true),
+                style: {
+                  fontSize: '0.75rem',
+                  padding: '0.2rem 0.55rem',
+                  height: '28px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: (settings.ttsConfig && settings.ttsConfig.engine !== 'webspeech') ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-surface)',
+                  borderColor: (settings.ttsConfig && settings.ttsConfig.engine !== 'webspeech') ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                  color: (settings.ttsConfig && settings.ttsConfig.engine !== 'webspeech') ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  cursor: 'pointer'
+                },
+                title: 'Paramètres de voix TTS'
+              },
+                h('span', null, '🎙️'),
+                h('span', null,
+                  settings.ttsConfig && settings.ttsConfig.engine === 'google-cloud'
+                    ? `IA (${(settings.ttsConfig.voiceId || '').replace('fr-FR-', '')})`
+                    : settings.ttsConfig && settings.ttsConfig.engine === 'openai'
+                    ? `OpenAI (${settings.ttsConfig.voiceId})`
+                    : 'Web Speech'
+                )
+              ),
+              h('div', { className: 'dictation-speed-selector' },
+                h('span', { style: { fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.2rem' } }, dt.speedLabel),
+                h('button', {
+                  className: `btn-speed ${dictationSpeed <= 0.8 ? 'active' : ''}`,
+                  onClick: () => setDictationSpeed(0.75)
+                }, '0.75x'),
+                h('button', {
+                  className: `btn-speed ${dictationSpeed > 0.8 ? 'active' : ''}`,
+                  onClick: () => setDictationSpeed(1.0)
+                }, '1.0x')
+              )
+            )
+          ),
+
+          // Content
+          h('div', { className: 'pane-content dictation-content' },
+            // Audio Deck
+            h('div', { className: 'dictation-deck-card' },
+              h('div', { className: 'dictation-deck-top' },
+                h('div', { className: 'dictation-stepper-info' },
+                  h('span', { className: 'dictation-stepper-label' },
+                    dt.sentenceCounter
+                      .replace('{current}', String(dictationIndex + 1))
+                      .replace('{total}', String(dictationSentences.length || 1))
+                  ),
+                  h('div', { className: 'dictation-progress-bar' },
+                    h('div', {
+                      className: 'dictation-progress-fill',
+                      style: { width: `${((dictationIndex + 1) / Math.max(1, dictationSentences.length)) * 100}%` }
+                    })
+                  )
+                ),
+                isPlayingAudio && h('div', { className: 'dictation-sound-wave' },
+                  h('span', { className: 'wave-bar bar-1' }),
+                  h('span', { className: 'wave-bar bar-2' }),
+                  h('span', { className: 'wave-bar bar-3' }),
+                  h('span', { className: 'wave-bar bar-4' }),
+                  h('span', { style: { fontSize: '0.75rem', color: 'var(--accent-secondary)', marginLeft: '0.35rem' } }, 'Écoute...')
+                )
+              ),
+
+              // Audio Controls
+              h('div', { className: 'dictation-audio-controls' },
+                h('button', {
+                  className: 'btn-secondary',
+                  onClick: handlePrevDictation,
+                  disabled: dictationIndex === 0 || isPlayingAudio,
+                  title: `${dt.prevSentence} (Ctrl + ←)`
+                }, `◀ ${dt.prevSentence} `, h('kbd', { className: 'shortcut-kbd' }, 'Ctrl+←')),
+
+                isPlayingAudio
+                  ? h('button', {
+                      className: 'btn-primary btn-dictation-play playing',
+                      onClick: handlePauseDictation,
+                      title: dt.pauseButton
+                    }, `⏸ ${dt.pauseButton}`)
+                  : h('button', {
+                      className: 'btn-primary btn-dictation-play',
+                      onClick: () => handlePlayDictation(),
+                      title: dt.listenButton
+                    }, `▶ ${dt.listenButton}`),
+
+                h('button', {
+                  className: 'btn-secondary btn-dictation-replay',
+                  onClick: () => handlePlayDictation(),
+                  title: `${dt.replayButton} (Ctrl + R)`
+                }, `🔁 ${dt.replayButton} `, h('kbd', { className: 'shortcut-kbd' }, 'Ctrl+R')),
+
+                h('button', {
+                  className: 'btn-secondary',
+                  onClick: handleNextDictation,
+                  disabled: dictationIndex >= dictationSentences.length - 1 || isPlayingAudio,
+                  title: `${dt.nextSentence} (Ctrl + →)`
+                }, `${dt.nextSentence} ▶ `, h('kbd', { className: 'shortcut-kbd' }, 'Ctrl+→'))
+              )
+            ),
+
+            // Input Tabs & Textarea
+            h('div', { className: 'dictation-input-container' },
+              h('div', { className: 'dictation-input-tabs' },
+                h('button', {
+                  className: `dictation-tab ${dictationTab === 'sentence' ? 'active' : ''}`,
+                  onClick: () => { setDictationTab('sentence'); setDictationEvaluation(null); }
+                }, `Phrase ${dictationIndex + 1}`),
+                h('button', {
+                  className: `dictation-tab ${dictationTab === 'full' ? 'active' : ''}`,
+                  onClick: () => { setDictationTab('full'); setDictationEvaluation(null); }
+                }, `Texte intégral (${dictationSentences.length} phrases)`)
+              ),
+
+              h('div', { className: 'editor-wrapper' },
+                h('textarea', {
+                  className: 'essay-textarea dictation-textarea',
+                  placeholder: dictationTab === 'sentence'
+                    ? `Écoutez la phrase ${dictationIndex + 1} et tapez ce que vous entendez en français... (Ctrl+Espace pour réécouter)`
+                    : 'Tapez la transcription intégrale ici...',
+                  value: dictationTab === 'sentence' ? currentSentenceInput : fullDictationInput,
+                  onChange: (e) => {
+                    const val = e.target.value;
+                    if (dictationTab === 'sentence') {
+                      setSentenceInputs((prev) => ({ ...prev, [dictationIndex]: val }));
+                    } else {
+                      setFullDictationInput(val);
+                    }
+                  }
+                })
+              ),
+
+              // Action Bar
+              h('div', { className: 'dictation-action-bar' },
+                h('div', { className: 'dictation-word-count' },
+                  h('span', null, `Mots transcrits : `),
+                  h('strong', null, activeWords),
+                  dictationTab === 'sentence' && h('span', { style: { color: 'var(--text-muted)', marginLeft: '0.5rem' } }, `(Attendu : ~${currentDictSentence.wordCount} mots)`)
+                ),
+                h('div', { style: { display: 'flex', gap: '0.6rem' } },
+                  h('button', {
+                    className: 'btn-secondary',
+                    onClick: handleResetDictationCurrent,
+                    disabled: !activeWords,
+                    style: { fontSize: '0.8rem', padding: '0.4rem 0.75rem' }
+                  }, 'Effacer'),
+                  h('button', {
+                    className: 'btn-primary btn-dictation-submit',
+                    onClick: handleEvaluateDictation,
+                    disabled: !activeWords
+                  }, `🎯 ${dt.evaluateButton}`)
+                )
+              )
+            ),
+
+            // Diagnostic Report Card
+            dictationEvaluation && h('div', { className: 'dictation-report-card' },
+              h('div', { className: 'dictation-report-header' },
+                h('div', { className: 'accuracy-gauge-container' },
+                  h('div', {
+                    className: `accuracy-score-circle ${
+                      dictationEvaluation.accuracy >= 90
+                        ? 'score-excellent'
+                        : dictationEvaluation.accuracy >= 75
+                        ? 'score-good'
+                        : 'score-needs-work'
+                    }`
+                  },
+                    h('span', { className: 'score-number' }, `${dictationEvaluation.accuracy}%`),
+                    h('span', { className: 'score-subtext' }, 'Exactitude')
+                  ),
+                  h('div', null,
+                    h('h4', { style: { fontFamily: 'var(--font-display)', fontSize: '1.05rem', marginBottom: '0.25rem' } },
+                      dictationEvaluation.accuracy >= 90
+                        ? '🌟 Excellent réflexe orthographique !'
+                        : dictationEvaluation.accuracy >= 75
+                        ? '👍 Bon travail ! Quelques accords à ajuster.'
+                        : '⚠️ Attention aux accords et aux homophones.'
+                    ),
+                    h('p', { style: { fontSize: '0.85rem', color: 'var(--text-secondary)' } },
+                      `${dictationEvaluation.correctWordsCount} / ${dictationEvaluation.totalExpectedWords} mots corrects • ${dictationEvaluation.mistakesCount} erreur(s) détectée(s)`
+                    )
+                  )
+                ),
+
+                // Mistake Badges
+                h('div', { className: 'mistake-category-pills' },
+                  h('div', { className: 'mistake-pill pill-accords' },
+                    h('span', { className: 'pill-dot dot-accords' }),
+                    h('span', { className: 'pill-label' }, dt.categories.accords),
+                    h('span', { className: 'pill-count' }, mistakesBreakdown.accords)
+                  ),
+                  h('div', { className: 'mistake-pill pill-accents' },
+                    h('span', { className: 'pill-dot dot-accents' }),
+                    h('span', { className: 'pill-label' }, dt.categories.accents),
+                    h('span', { className: 'pill-count' }, mistakesBreakdown.accents)
+                  ),
+                  h('div', { className: 'mistake-pill pill-homophones' },
+                    h('span', { className: 'pill-dot dot-homophones' }),
+                    h('span', { className: 'pill-label' }, dt.categories.homophones),
+                    h('span', { className: 'pill-count' }, mistakesBreakdown.homophones)
+                  ),
+                  h('div', { className: 'mistake-pill pill-lexique' },
+                    h('span', { className: 'pill-dot dot-lexique' }),
+                    h('span', { className: 'pill-label' }, dt.categories.lexique),
+                    h('span', { className: 'pill-count' }, mistakesBreakdown.lexique)
+                  )
+                )
+              ),
+
+              // Visual Diff
+              h('div', { className: 'dictation-diff-section' },
+                h('h5', { style: { fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.04em' } },
+                  'Comparaison visuelle (Attendu vs Votre transcription)'
+                ),
+                h('div', { className: 'dictation-diff-tokens' },
+                  dictationEvaluation.diffTokens.map((token, idx) => {
+                    if (token.type === 'unchanged') return h('span', { key: idx, className: 'diff-token unchanged' }, token.value);
+                    if (token.type === 'removed') return h('del', { key: idx, className: 'diff-token diff-removed', title: 'Attendu' }, token.value);
+                    if (token.type === 'added') return h('ins', { key: idx, className: 'diff-token diff-added', title: 'Votre saisie' }, token.value);
+                    return null;
+                  })
+                )
+              ),
+
+              // Itemized mistakes list
+              dictationEvaluation.mistakes.length > 0 ? h('div', { className: 'dictation-mistakes-list' },
+                h('h5', { style: { fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.04em' } },
+                  `Détail pédagogique des erreurs (${dictationEvaluation.mistakes.length})`
+                ),
+                h('div', { className: 'mistakes-grid' },
+                  dictationEvaluation.mistakes.map((m) => h('div', { key: m.id, className: `mistake-item-card card-${m.category}` },
+                    h('div', { className: 'mistake-words' },
+                      h('span', { className: 'user-mistake-word' }, m.userWord),
+                      h('span', { className: 'mistake-arrow' }, '➔'),
+                      h('span', { className: 'expected-correct-word' }, m.expectedWord)
+                    ),
+                    h('span', { className: `mistake-category-tag tag-${m.category}` }, dt.categories[m.category] || m.category),
+                    h('p', { className: 'mistake-explanation' }, m.explanation)
+                  ))
+                )
+              ) : h('div', { className: 'dictation-perfect-badge' },
+                h('span', { style: { fontSize: '1.25rem' } }, '✅'),
+                h('span', null, 'Zéro faute ! Félicitations pour cette transcription impeccable.')
+              )
+            )
+          )
+        );
+      };
+
+      return h('div', { className: 'app-container' },
+        // Header
+        h('header', { className: 'app-header' },
+          h('div', { className: 'brand' },
+            h('div', { className: 'brand-icon' }, '✍️'),
+            h('div', null,
+              h('span', { className: 'brand-title' }, t.brand.title),
+              h('span', { className: 'brand-badge' }, t.brand.badge)
+            )
+          ),
+          h('div', { className: 'header-actions' },
+            h('span', { style: { fontSize: '0.8rem', color: 'var(--text-muted)' } },
+              t.header.engine, h('strong', { style: { color: 'var(--text-secondary)' } }, settings.provider.toUpperCase())
+            ),
+
+            // Language Selector
+            h('div', { className: 'language-selector-wrapper', title: t.header.language },
+              h('span', { className: 'language-selector-icon' }, '🌐'),
+              h('select', {
+                className: 'language-select',
+                value: currentLanguage,
+                onChange: (e) => handleLanguageChange(e.target.value),
+                'aria-label': t.header.language
+              },
+                h('option', { value: 'fr' }, '🇫🇷 FR'),
+                h('option', { value: 'en' }, '🇬🇧 EN'),
+                h('option', { value: 'zh' }, '🇨🇳 ZH'),
+                h('option', { value: 'vi' }, '🇻🇳 VI')
+              )
+            ),
+
+            h('a', {
+              href: 'https://buymeacoffee.com/writingdelfb2',
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              className: 'btn-bmc',
+              title: t.header.coffeeTitle,
+              'aria-label': t.header.coffeeTitle
+            },
+              h('span', { className: 'btn-bmc-icon' }, '☕'),
+              h('span', { className: 'btn-bmc-text' }, t.header.coffeeLabel)
+            ),
+            h('button', {
+              className: 'btn-icon',
+              onClick: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+              title: theme === 'dark' ? t.header.themeLight : t.header.themeDark
+            }, theme === 'dark' ? '☀️' : '🌙'),
+            h('button', {
+              className: 'btn-icon',
+              onClick: () => setIsSettingsOpen(true),
+              title: t.header.settings
+            }, '⚙️')
+          )
+        ),
+
+        // Workspace
+        h('main', { className: 'workspace-grid' },
+          // Left Pane (Editor or Dictation)
+          activeMode === 'dictation'
+            ? renderDictationPane()
+            : h('section', { className: 'pane' },
+                h('div', { className: 'pane-header' },
+                  h('div', { className: 'pane-title' }, t.editor.paneTitle),
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '0.5rem' } },
+                    h('button', {
+                      className: 'btn-secondary',
+                      onClick: handleReset,
+                      disabled: !content.trim(),
+                      style: { padding: '0.35rem 0.65rem', fontSize: '0.8rem' }
+                    }, `🗑️ ${t.editor.clearButton}`)
+                  )
+                ),
+                h('div', { className: 'pane-content' },
+              // Prompt Box
+              h('div', { className: 'prompt-box' },
+                h('div', { className: 'prompt-controls' },
+                  h('select', {
+                    className: 'prompt-select',
+                    value: selectedPrompt.id,
+                    onChange: (e) => {
+                      const p = prompts.find((item) => item.id === e.target.value);
+                      if (p) handleSelectPrompt(p);
+                    }
+                  },
+                    prompts.map((p) => h('option', { key: p.id, value: p.id }, `[${(t.categories[p.category] || p.category).toUpperCase()}] ${p.title}`))
+                  ),
+                  h('button', { className: 'btn-secondary', onClick: handleRandomPrompt }, `🎲 ${t.editor.randomTopicButton}`)
+                ),
+                h('div', { className: 'prompt-details' },
+                  h('p', { className: 'prompt-scenario' }, selectedPrompt.scenario),
+                  h('p', { className: 'prompt-instructions' }, '📌 ' + selectedPrompt.instructions)
+                )
+              ),
+
+              // Textarea
+              h('div', { className: 'editor-wrapper' },
+                h('textarea', {
+                  className: 'essay-textarea',
+                  placeholder: t.editor.inputPlaceholder,
+                  value: content,
+                  onChange: (e) => setContent(e.target.value)
+                })
+              ),
+
+              // CEFR Level Selector
+              h('div', { className: 'cefr-selector-container', role: 'group', 'aria-label': t.cefr?.selectorTitle },
+                h('div', { className: 'cefr-selector-header' },
+                  h('div', { className: 'cefr-selector-label' },
+                    h('span', null, '📚'),
+                    h('span', { className: 'cefr-selector-title' }, t.cefr?.selectorTitle || 'Niveaux CECRL :'),
+                    h('span', { className: 'cefr-selector-hint' }, `(${t.cefr?.selectorHint || '1 ou 2'})`)
+                  ),
+                  selectorNotice && h('span', { className: 'cefr-selector-notice' }, selectorNotice)
+                ),
+                h('div', { className: 'cefr-pills-grid' },
+                  ALL_CEFR_LEVELS.map((lvl) => {
+                    const isSelected = selectedLevels.includes(lvl);
+                    const meta = CEFR_LEVEL_METADATA[lvl];
+                    const levelTrans = t.cefr?.levels?.[lvl];
+                    const isMaxDisabled = !isSelected && selectedLevels.length >= 2;
+
+                    return h('label', {
+                      key: lvl,
+                      className: `cefr-pill ${isSelected ? 'active' : ''} ${isMaxDisabled ? 'disabled-max' : ''}`,
+                      style: {
+                        '--level-color': meta.color,
+                        '--level-bg': meta.badgeBg,
+                        '--level-border': meta.borderActive
+                      },
+                      title: `${lvl} — ${levelTrans?.name || lvl}: ${levelTrans?.desc || ''}`
+                    },
+                      h('input', {
+                        type: 'checkbox',
+                        checked: isSelected,
+                        onChange: () => handleToggleLevel(lvl),
+                        className: 'cefr-checkbox-input',
+                        'aria-label': `CEFR ${lvl}`
+                      }),
+                      h('span', { className: 'cefr-pill-code' }, lvl),
+                      h('span', { className: 'cefr-pill-name' }, levelTrans?.name || lvl)
+                    );
+                  })
+                )
+              ),
+
+              // Footer with Word Counter
+              h('div', { className: 'editor-footer' },
+                h('div', { className: 'word-counter-badge' },
+                  h('div', { className: 'progress-bar-container', title: `${progressPercent}%` },
+                    h('div', {
+                      className: 'progress-bar-fill',
+                      style: {
+                        width: `${progressPercent}%`,
+                        backgroundColor: isTargetAchieved ? 'var(--counter-success)' : 'var(--counter-under)'
+                      }
+                    })
+                  ),
+                  h('span', { className: `counter-text ${isTargetAchieved ? 'achieved' : 'under'}` },
+                    `${wordCount} / 250 ${t.editor.wordsLabel}`
+                  ),
+                  h('span', { style: { fontSize: '0.75rem', color: 'var(--text-muted)' } },
+                    isTargetAchieved ? `(${t.editor.statusAchieved})` : `(${t.editor.statusUnder})`
+                  )
+                ),
+                h('button', {
+                  className: 'btn-primary',
+                  onClick: handleImprove,
+                  disabled: isAnyLoading,
+                  title: wordCount === 0 ? "Générer un texte modèle avec l’IA" : undefined
+                }, isAnyLoading ? t.comparison.analyzingButton : `✨ ${t.comparison.improveButton}`)
+              )
+            )
+          ),
+
+          // Right Pane (Comparison Container)
+          h('section', { className: 'pane comparison-pane-outer' },
+            h('div', { className: 'pane-header' },
+              h('div', { className: 'pane-title' }, t.comparison.paneTitle),
+              h('div', {
+                style: {
+                  fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-surface)',
+                  padding: '0.2rem 0.55rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-subtle)'
+                }
+              }, `🪟 ${selectedLevels.length} ${selectedLevels.length === 1 ? 'fenêtre' : 'fenêtres'} (${selectedLevels.join(' + ')})`)
+            ),
+            h('div', { className: 'pane-content', style: { padding: '0.75rem' } },
+              h('div', {
+                className: `comparison-windows-wrapper ${selectedLevels.length === 1 ? 'single-window' : 'dual-window'}`
+              },
+                selectedLevels.map((lvl) => renderComparisonWindow(lvl))
+              )
+            )
+          )
+        ),
+
+        // Settings Modal
+        isSettingsOpen && h('div', { className: 'modal-overlay' },
+          h('div', { className: 'modal-content' },
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' } },
+              h('h3', { style: { fontFamily: 'var(--font-display)', fontSize: '1.15rem' } }, t.settings.title),
+              h('button', { className: 'btn-icon', onClick: () => setIsSettingsOpen(false) }, t.settings.closeButton)
+            ),
+
+            // Language Option in Modal
+            h('div', { style: { marginBottom: '1.25rem' } },
+              h('label', { style: { display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' } }, t.settings.languageLabel),
+              h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' } },
+                [
+                  { code: 'fr', label: '🇫🇷 Français' },
+                  { code: 'en', label: '🇬🇧 English' },
+                  { code: 'zh', label: '🇨🇳 中文' },
+                  { code: 'vi', label: '🇻🇳 Tiếng Việt' }
+                ].map((item) => h('button', {
+                  key: item.code,
+                  type: 'button',
+                  className: `btn-secondary ${currentLanguage === item.code ? 'active' : ''}`,
+                  style: {
+                    padding: '0.5rem',
+                    fontSize: '0.85rem',
+                    borderColor: currentLanguage === item.code ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                    background: currentLanguage === item.code ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-surface)'
+                  },
+                  onClick: () => handleLanguageChange(item.code)
+                }, item.label))
+              )
+            ),
+
+            h('div', { style: { marginBottom: '1.25rem' } },
+              h('label', { style: { display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' } }, t.settings.providerLabel),
+              h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.65rem' } },
+                h('label', {
+                  style: {
+                    display: 'flex', gap: '0.75rem', padding: '0.75rem', borderRadius: 'var(--radius-md)',
+                    border: '1px solid ' + (settings.provider === 'mock' ? 'var(--accent-primary)' : 'var(--border-subtle)'),
+                    background: settings.provider === 'mock' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
+                    cursor: 'pointer'
+                  }
+                },
+                  h('input', { type: 'radio', name: 'prov', checked: settings.provider === 'mock', onChange: () => setSettings({ ...settings, provider: 'mock' }) }),
+                  h('div', null,
+                    h('div', { style: { fontWeight: 600, fontSize: '0.9rem' } }, t.settings.mockOption)
+                  )
+                ),
+                h('label', {
+                  style: {
+                    display: 'flex', gap: '0.75rem', padding: '0.75rem', borderRadius: 'var(--radius-md)',
+                    border: '1px solid ' + (settings.provider === 'gemini' ? 'var(--accent-primary)' : 'var(--border-subtle)'),
+                    background: settings.provider === 'gemini' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-secondary)',
+                    cursor: 'pointer'
+                  }
+                },
+                  h('input', { type: 'radio', name: 'prov', checked: settings.provider === 'gemini', onChange: () => setSettings({ ...settings, provider: 'gemini' }) }),
+                  h('div', null,
+                    h('div', { style: { fontWeight: 600, fontSize: '0.9rem' } }, t.settings.geminiOption)
+                  )
+                )
+              )
+            ),
+            settings.provider === 'gemini' && h('div', { style: { marginBottom: '1.25rem' } },
+              h('label', { style: { display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem' } }, t.settings.apiKeyLabel),
+              h('input', {
+                type: 'password',
+                placeholder: t.settings.apiKeyPlaceholder,
+                value: settings.apiKey || '',
+                onChange: (e) => setSettings({ ...settings, apiKey: e.target.value }),
+                style: { width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'monospace' }
+              }),
+              h('span', { style: { display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' } }, t.settings.apiKeyHelp)
+            ),
+
+            // TTS Voice Section (Feature 008)
+            h('div', { style: { marginBottom: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' } },
+              h('label', { style: { display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.6rem', color: 'var(--accent-secondary)' } },
+                h('span', null, '🎙️'),
+                h('span', null, t.tts ? t.tts.sectionTitle : 'Voix de la Dictée (Synthèse Vocale)')
+              ),
+              // Engine Selector
+              h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.85rem' } },
+                [
+                  { id: 'webspeech', label: t.tts?.engines?.webspeech || 'Navigateur Web Speech (Gratuit & Hors-ligne)' },
+                  { id: 'google-cloud', label: t.tts?.engines?.googleCloud || 'Google Cloud TTS Neural2 / Studio (Haute Fidélité)' },
+                  { id: 'openai', label: t.tts?.engines?.openai || 'OpenAI TTS (Voix Expressive)' }
+                ].map((eng) =>
+                  h('label', {
+                    key: eng.id,
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.55rem 0.75rem',
+                      borderRadius: 'var(--radius-sm)', border: '1px solid',
+                      borderColor: (settings.ttsConfig?.engine === eng.id) ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                      background: (settings.ttsConfig?.engine === eng.id) ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-surface)',
+                      cursor: 'pointer', fontSize: '0.85rem'
+                    }
+                  },
+                    h('input', {
+                      type: 'radio',
+                      name: 'tts-engine',
+                      checked: (settings.ttsConfig?.engine || 'webspeech') === eng.id,
+                      onChange: () => {
+                        const firstVoice = FRENCH_VOICE_CATALOG.find((v) => v.provider === eng.id) || FRENCH_VOICE_CATALOG[0];
+                        setSettings({
+                          ...settings,
+                          ttsConfig: {
+                            ...(settings.ttsConfig || DEFAULT_TTS_CONFIG),
+                            engine: eng.id,
+                            voiceId: firstVoice.id
+                          }
+                        });
+                      }
+                    }),
+                    h('span', { style: { fontWeight: (settings.ttsConfig?.engine || 'webspeech') === eng.id ? 600 : 400 } }, eng.label)
+                  )
+                )
+              ),
+              // Voice Timbre Dropdown & Custom Key
+              h('div', { style: { display: 'flex', flexDirection: 'column', gap: '0.6rem' } },
+                h('div', null,
+                  h('label', { style: { display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.3rem', color: 'var(--text-secondary)' } },
+                    t.tts?.voiceLabel || 'Timbre & Modèle de voix :'
+                  ),
+                  h('select', {
+                    className: 'prompt-select',
+                    value: settings.ttsConfig?.voiceId || 'webspeech-default',
+                    onChange: (e) => setSettings({
+                      ...settings,
+                      ttsConfig: { ...(settings.ttsConfig || DEFAULT_TTS_CONFIG), voiceId: e.target.value }
+                    }),
+                    style: { width: '100%', padding: '0.5rem', fontSize: '0.85rem' }
+                  },
+                    FRENCH_VOICE_CATALOG
+                      .filter((v) => v.provider === (settings.ttsConfig?.engine || 'webspeech'))
+                      .map((v) => h('option', { key: v.id, value: v.id }, `[${v.styleBadge}] ${v.name} — ${v.description}`))
+                  )
+                ),
+                settings.ttsConfig?.engine !== 'webspeech' && h('div', null,
+                  h('label', { style: { display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.25rem', color: 'var(--text-secondary)' } },
+                    settings.ttsConfig?.engine === 'google-cloud'
+                      ? 'Clé API Google Cloud / Gemini (Optionnel si renseignée plus haut) :'
+                      : 'Clé API OpenAI :'
+                  ),
+                  h('input', {
+                    type: 'password',
+                    placeholder: settings.ttsConfig?.engine === 'google-cloud' ? 'Laissez vide pour réutiliser la clé Gemini ci-dessus...' : 'sk-...',
+                    value: (settings.ttsConfig?.engine === 'google-cloud' ? settings.ttsConfig?.googleApiKey : settings.ttsConfig?.openaiApiKey) || '',
+                    onChange: (e) => {
+                      const val = e.target.value;
+                      if (settings.ttsConfig?.engine === 'google-cloud') {
+                        setSettings({ ...settings, ttsConfig: { ...settings.ttsConfig, googleApiKey: val } });
+                      } else {
+                        setSettings({ ...settings, ttsConfig: { ...settings.ttsConfig, openaiApiKey: val } });
+                      }
+                    },
+                    style: { width: '100%', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '0.8rem' }
+                  })
+                ),
+                h('div', { style: { display: 'flex', justifyContent: 'flex-start', marginTop: '0.3rem' } },
+                  h('button', {
+                    type: 'button',
+                    className: 'btn-secondary',
+                    onClick: async () => {
+                      if (isTestingVoice) return;
+                      setIsTestingVoice(true);
+                      try {
+                        await SpeechService.testVoiceSample(settings.ttsConfig || DEFAULT_TTS_CONFIG, settings.apiKey);
+                      } catch (err) {
+                        console.warn('Voice preview error:', err);
+                      } finally {
+                        setIsTestingVoice(false);
+                      }
+                    },
+                    disabled: isTestingVoice,
+                    style: { display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', padding: '0.45rem 0.85rem' }
+                  }, isTestingVoice ? (t.tts?.testingLabel || 'Génération audio...') : (t.tts?.testButton || '🔊 Tester la voix'))
+                )
+              )
+            ),
+            h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' } },
+              h('button', { className: 'btn-secondary', onClick: () => setIsSettingsOpen(false) }, 'Annuler'),
+              h('button', {
+                className: 'btn-primary',
+                onClick: () => {
+                  const updated = { ...data, settings };
+                  setData(updated);
+                  StorageService.save(updated);
+                  setIsSettingsOpen(false);
+                }
+              }, t.settings.saveButton)
+            )
+          )
+        )
+      );
+    }
+
+    ReactDOM.render(h(App), document.getElementById('root'));
+  </script>
+</body>
+</html>

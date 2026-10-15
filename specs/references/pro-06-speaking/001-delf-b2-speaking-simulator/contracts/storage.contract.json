@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StorageContract",
+  "description": "Interface contract for LocalStorage (Session Metadata) and IndexedDB (Audio Blobs)",
+  "type": "object",
+  "properties": {
+    "sessionRepository": {
+      "type": "object",
+      "properties": {
+        "getActiveSession": { "type": "string", "description": "Returns Promise<ExamSession | null>" },
+        "saveActiveSession": { "type": "string", "description": "Saves current ExamSession state into LocalStorage" },
+        "clearActiveSession": { "type": "string" },
+        "saveAudioBlob": { "type": "string", "description": "Stores Blob in IndexedDB by key returning Promise<string>" },
+        "getAudioBlob": { "type": "string", "description": "Retrieves Blob by key returning Promise<Blob | null>" },
+        "listPastSessions": { "type": "string", "description": "Returns history of completed evaluations" }
+      },
+      "required": ["getActiveSession", "saveActiveSession", "saveAudioBlob", "getAudioBlob"]
+    }
+  }
+}

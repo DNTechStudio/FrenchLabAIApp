@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PracticeElevationEngineContract",
+  "description": "Contract for the CEFR Speech Elevation and AI Improvement Engine in Practice Mode",
+  "type": "object",
+  "required": ["elevateSpeech"],
+  "properties": {
+    "elevateSpeech": {
+      "type": "object",
+      "properties": {
+        "parameters": {
+          "type": "object",
+          "required": ["originalTranscript", "level1", "level2"],
+          "properties": {
+            "originalTranscript": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Raw French transcript transcribed from candidate speech"
+            },
+            "level1": {
+              "type": "string",
+              "enum": ["A1", "A2", "B1", "B2", "C1", "C2"],
+              "description": "First target CEFR level"
+            },
+            "level2": {
+              "type": "string",
+              "enum": ["A1", "A2", "B1", "B2", "C1", "C2"],
+              "description": "Second target CEFR level"
+            },
+            "locale": {
+              "type": "string",
+              "enum": ["fr", "en", "zh", "vi"],
+              "default": "fr",
+              "description": "Locale for pedagogical commentary and upgrade notes"
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "required": ["original", "elevations", "comparisonHighlights"],
+          "properties": {
+            "original": {
+              "type": "string",
+              "description": "Verbatim transcript input"
+            },
+            "elevations": {
+              "type": "object",
+              "required": ["level1", "level2"],
+              "properties": {
+                "level1": {
+                  "$ref": "#/definitions/LevelElevation"
+                },
+                "level2": {
+                  "$ref": "#/definitions/LevelElevation"
+                }
+              }
+            },
+            "comparisonHighlights": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["fromSnippet", "toSnippet", "targetLevel", "reason"],
+                "properties": {
+                  "fromSnippet": { "type": "string" },
+                  "toSnippet": { "type": "string" },
+                  "targetLevel": { "type": "string" },
+                  "category": { "type": "string", "enum": ["vocabulary", "syntax", "connector", "register"] },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "LevelElevation": {
+      "type": "object",
+      "required": ["level", "rewrittenText", "connectorsUsed", "syntacticStructures", "pedagogicalSummary"],
+      "properties": {
+        "level": { "type": "string", "enum": ["A1", "A2", "B1", "B2", "C1", "C2"] },
+        "rewrittenText": { "type": "string" },
+        "connectorsUsed": { "type": "array", "items": { "type": "string" } },
+        "syntacticStructures": { "type": "array", "items": { "type": "string" } },
+        "pedagogicalSummary": { "type": "string" },
+        "lexicalUpgrades": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "original": { "type": "string" },
+              "elevated": { "type": "string" },
+              "explanation": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "french-lab-ai-app",
+  "version": "1.0.0",
+  "description": "French Lab AI Super-App (TEC-2026-07 PRO-07) - Unified French Mastery Ecosystem",
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "start": "node dev-server.js",
+    "test": "node --test tests/french-lab.test.js"
+  },
+  "keywords": [
+    "french",
+    "delf",
+    "dalf",
+    "cefr",
+    "speaking",
+    "writing",
+    "conversation",
+    "debate"
+  ],
+  "author": "Google DeepMind pair programming",
+  "license": "MIT"
+}

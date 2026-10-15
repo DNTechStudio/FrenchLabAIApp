@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AudioEngineContract",
+  "description": "Interface contract for the modular Web Audio, Recorder, STT, and TTS engines",
+  "type": "object",
+  "properties": {
+    "audioRecorder": {
+      "type": "object",
+      "properties": {
+        "startRecording": {
+          "type": "string",
+          "description": "Method returning Promise<void>, requests microphone and initializes MediaRecorder"
+        },
+        "pauseRecording": { "type": "string" },
+        "resumeRecording": { "type": "string" },
+        "stopRecording": {
+          "type": "string",
+          "description": "Method returning Promise<AudioRecordingResult> with blob, mimeType, and durationSeconds"
+        },
+        "onWaveformSample": {
+          "type": "string",
+          "description": "Event subscription providing Float32Array or Uint8Array frequency/time-domain data"
+        }
+      },
+      "required": ["startRecording", "stopRecording", "onWaveformSample"]
+    },
+    "speechRecognizer": {
+      "type": "object",
+      "properties": {
+        "startListening": {
+          "type": "string",
+          "description": "Initializes live speech-to-text recognition with lang='fr-FR'"
+        },
+        "stopListening": {
+          "type": "string",
+          "description": "Stops speech recognition and finalizes transcription"
+        },
+        "onInterimResult": { "type": "string" },
+        "onFinalResult": { "type": "string" }
+      },
+      "required": ["startListening", "stopListening", "onFinalResult"]
+    },
+    "voiceSynthesizer": {
+      "type": "object",
+      "properties": {
+        "speak": {
+          "type": "string",
+          "description": "Method taking text (string) and options (voice, rate, pitch), returns Promise<void>"
+        },
+        "cancel": { "type": "string" },
+        "onStart": { "type": "string" },
+        "onEnd": { "type": "string" },
+        "onError": { "type": "string" }
+      },
+      "required": ["speak", "cancel"]
+    }
+  }
+}

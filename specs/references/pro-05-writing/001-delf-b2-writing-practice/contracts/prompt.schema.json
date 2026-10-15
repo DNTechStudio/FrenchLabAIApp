@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DelfB2Prompt",
+  "type": "object",
+  "required": ["id", "category", "title", "scenario", "instructions", "targetWordCount"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["lettre_formelle", "essai_argumentatif", "article_forum"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 150
+    },
+    "scenario": {
+      "type": "string",
+      "minLength": 20
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 20
+    },
+    "targetWordCount": {
+      "type": "integer",
+      "default": 250,
+      "minimum": 150
+    }
+  },
+  "additionalProperties": false
+}

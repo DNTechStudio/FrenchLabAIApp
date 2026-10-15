@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LocalStorageSchema",
+  "type": "object",
+  "required": ["version", "activePromptId", "drafts", "settings"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "activePromptId": {
+      "type": "string"
+    },
+    "drafts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["promptId", "content", "wordCount", "lastSavedAt"],
+        "properties": {
+          "promptId": { "type": "string" },
+          "content": { "type": "string" },
+          "wordCount": { "type": "integer", "minimum": 0 },
+          "lastSavedAt": { "type": "integer" }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "required": ["provider", "theme"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["mock", "gemini", "openai"]
+        },
+        "apiKey": { "type": "string" },
+        "theme": {
+          "type": "string",
+          "enum": ["dark", "light"]
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

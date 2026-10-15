@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvaluationEngineContract",
+  "description": "Interface contract for the DELF B2 25-Point CEFR Evaluation Engine",
+  "type": "object",
+  "properties": {
+    "evaluateSession": {
+      "type": "object",
+      "description": "Accepts an EvaluationInput and returns an EvaluationReport",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "triggerDocument": { "type": "object" },
+            "monologue": {
+              "type": "object",
+              "properties": {
+                "transcript": { "type": "string" },
+                "durationSeconds": { "type": "number" }
+              },
+              "required": ["transcript", "durationSeconds"]
+            },
+            "debateTurns": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "turnIndex": { "type": "integer" },
+                  "examinerQuestionText": { "type": "string" },
+                  "candidateTranscript": { "type": "string" },
+                  "candidateDurationSeconds": { "type": "number" }
+                },
+                "required": ["turnIndex", "examinerQuestionText", "candidateTranscript"]
+              }
+            }
+          },
+          "required": ["triggerDocument", "monologue", "debateTurns"]
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "totalScore": { "type": "number", "minimum": 0, "maximum": 25 },
+            "isPassing": { "type": "boolean" },
+            "scoreBreakdown": {
+              "type": "object",
+              "properties": {
+                "monologue": {
+                  "type": "object",
+                  "properties": {
+                    "presentationProblematique": { "type": "number", "minimum": 0, "maximum": 3 },
+                    "argumentationExemples": { "type": "number", "minimum": 0, "maximum": 3 },
+                    "coherenceOrganisation": { "type": "number", "minimum": 0, "maximum": 3 },
+                    "subtotal": { "type": "number", "minimum": 0, "maximum": 9 }
+                  },
+                  "required": ["presentationProblematique", "argumentationExemples", "coherenceOrganisation", "subtotal"]
+                },
+                "debat": {
+                  "type": "object",
+                  "properties": {
+                    "defensePointDeVue": { "type": "number", "minimum": 0, "maximum": 3 },
+                    "reactiviteInteraction": { "type": "number", "minimum": 0, "maximum": 3 },
+                    "subtotal": { "type": "number", "minimum": 0, "maximum": 6 }
+                  },
+                  "required": ["defensePointDeVue", "reactiviteInteraction", "subtotal"]
+                },
+                "linguistic": {
+                  "type": "object",
+                  "properties": {
+                    "lexique": { "type": "number", "minimum": 0, "maximum": 4 },
+                    "morphosyntaxe": { "type": "number", "minimum": 0, "maximum": 5 },
+                    "phonologie": { "type": "number", "minimum": 0, "maximum": 1 },
+                    "subtotal": { "type": "number", "minimum": 0, "maximum": 10 }
+                  },
+                  "required": ["lexique", "morphosyntaxe", "phonologie", "subtotal"]
+                }
+              },
+              "required": ["monologue", "debat", "linguistic"]
+            },
+            "linguisticErrors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "category": { "type": "string", "enum": ["morphosyntaxe", "lexique", "phonologie", "connecteur"] },
+                  "severity": { "type": "string", "enum": ["minor", "moderate", "critical"] },
+                  "originalSnippet": { "type": "string" },
+                  "suggestedCorrection": { "type": "string" },
+                  "explanation": { "type": "string" }
+                },
+                "required": ["id", "category", "originalSnippet", "suggestedCorrection", "explanation"]
+              }
+            },
+            "lexicalRecommendations": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "qualitativeSynthesis": {
+              "type": "object",
+              "properties": {
+                "strengths": { "type": "array", "items": { "type": "string" } },
+                "weaknesses": { "type": "array", "items": { "type": "string" } },
+                "actionPlan": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["strengths", "weaknesses", "actionPlan"]
+            }
+          },
+          "required": ["totalScore", "isPassing", "scoreBreakdown", "linguisticErrors", "lexicalRecommendations", "qualitativeSynthesis"]
+        }
+      }
+    }
+  }
+}
